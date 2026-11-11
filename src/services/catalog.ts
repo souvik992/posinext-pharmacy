@@ -8,6 +8,10 @@ import { assertPerm } from './permissions.ts';
 import { camel, camelAll } from './camel.ts';
 import { mulDivRound, parsePaise } from '../core/money.ts';
 import { barcodeKey } from '../core/barcode.ts';
+import { retailCommand } from './retailJournal.ts';
+import { findOrCreateBatch } from './products.ts';
+import { postMove } from './inventory.ts';
+import { getSetting as getSettingRaw } from './settings.ts';
 import { checkStationId } from './stations.ts';
 
 const MAX_PRICE = 1_000_000_000; // Rs 1 crore per unit
@@ -395,7 +399,14 @@ export function parseCsv(text: string): string[][] {
 export interface CsvPreview {
   rows: number; errors: Array<{ row: number; message: string }>;
   /** category: the existing category's saved name, or the new one as first written; newCategory: it will be created. */
-  items: Array<{ name: string; category: string; newCategory: boolean; price: number; taxPercent: number; hsn: string | null; barcode: string | null; unit: string; isVeg: boolean | null; description: string | null }>;
+  items: Array<{ name: string; category: string; newCategory: boolean; price: number; taxPercent: number; hsn: string | null; barcode: string | null; unit: string; isVeg: boolean | null; description: string | null;
+    // retail
+    mrp: number | null; uqc: string; plu: string | null; weighed: boolean; batchTracked: boolean; purchasePrice: number | null; reorderLevelMilli: number;
+    openingStockMilli: number; batchNo: string | null; expiry: string | null }>;
+  /** Rows whose item is already there: left as they are, so the same file can be imported again safely. */
+  skipped?: Array<{ row: number; name: string }>;
+  /** Not errors, but worth fixing (a missing HSN, one HSN with two GST rates). */
+  warnings?: Array<{ row: number; message: string }>;
   /** Categories the import will create, in file order. */
   newCategories: string[];
 }
@@ -433,6 +444,11 @@ export function previewItemsCsv(ctx: Ctx, csv: string): CsvPreview {
   const fresh = new Map<string, string>(); // key -> name as first written in the file
   const seenBarcodes = new Set<string>();
   const seenNames = new Set<string>();
+  const skipped: NonNullable<CsvPreview['skipped']> = [];
+  const warnings: NonNullable<CsvPreview['warnings']> = [];
+  const hsnRates = new Map<string, { rate: number; row: number }>();
+  const hsnDigits = getSettingRaw(ctx, 'hsn_digits') === '6' ? 6 : 4;
+  const registered = Boolean(get<{ gstin: string | null }>(ctx.db, 'SELECT o.gstin FROM outlet o JOIN device d ON d.outlet_id = o.id LIMIT 1')?.gstin);
   rows.slice(1).forEach((r, idx) => {
     const n = idx + 2;
     const v = (name: string) => (col(name) >= 0 ? (r[col(name)] ?? '').trim() : '');
@@ -443,7 +459,7 @@ export function previewItemsCsv(ctx: Ctx, csv: string): CsvPreview {
       const key = name.toLowerCase();
       if (seenNames.has(key)) throw new Error(`"${name}" is repeated in the file`);
       seenNames.add(key);
-      if (get(ctx.db, 'SELECT 1 FROM item WHERE lower(name) = ? AND deleted_at IS NULL', key)) throw new Error(`"${name}" is already on the menu (edit it there instead)`);
+      if (get(ctx.db, 'SELECT 1 FROM item WHERE lower(name) = ? AND deleted_at IS NULL', key)) { skipped.push({ row: n, name }); return; }
       const price = parsePaise(v('price'));
       if (price > MAX_PRICE) throw new Error('price is too large');
       const taxRaw = v('tax_percent') || '0';
@@ -453,12 +469,37 @@ export function previewItemsCsv(ctx: Ctx, csv: string): CsvPreview {
       if (taxPercent > 10000) throw new Error('tax_percent cannot exceed 100');
       const hsn = v('hsn') || null;
       if (hsn && !/^\d{4,8}$/.test(hsn)) throw new Error('hsn must be 4-8 digits');
+      if (hsn && hsn.length < hsnDigits) throw new Error(`hsn must have at least ${hsnDigits} digits (turnover above Rs 5 crore)`);
+      if (!hsn && hsnDigits === 6) throw new Error('hsn is required (6 digits for turnover above Rs 5 crore)');
+      if (!hsn && registered) warnings.push({ row: n, message: `${name}: no HSN code (needed on B2B bills and in GSTR-1)` });
       const barcode = v('barcode') || null;
       if (barcode) {
-        if (seenBarcodes.has(barcode)) throw new Error(`barcode ${barcode} is repeated in the file`);
-        seenBarcodes.add(barcode);
-        if (get(ctx.db, 'SELECT 1 FROM item WHERE barcode = ? AND deleted_at IS NULL', barcode)) throw new Error(`barcode ${barcode} already exists`);
+        if (seenBarcodes.has(barcodeKey(barcode))) throw new Error(`barcode ${barcode} is repeated in the file`);
+        seenBarcodes.add(barcodeKey(barcode));
+        if (get(ctx.db, 'SELECT 1 FROM item_scan_code WHERE code_key = ?', barcodeKey(barcode))) throw new Error(`barcode ${barcode} already exists`);
       }
+      if (hsn) {
+        const seen = hsnRates.get(hsn);
+        if (seen && seen.rate !== taxPercent) warnings.push({ row: n, message: `HSN ${hsn} has GST ${taxPercent / 100}% here but ${seen.rate / 100}% on row ${seen.row}: check the rate` });
+        else if (!seen) hsnRates.set(hsn, { rate: taxPercent, row: n });
+      }
+      const money = (c: string) => (v(c) ? parsePaise(v(c)) : null);
+      const mrp = money('mrp');
+      // imported prices include GST (as on the shelf); never above MRP
+      if (mrp !== null && price > mrp) throw new Error(`price ${v('price')} is above the MRP ${v('mrp')}`);
+      const yes = (c: string) => ['yes', 'y', '1', 'true'].includes(v(c).toLowerCase());
+      const UNIT_UQC: Record<string, string> = { kg: 'KGS', g: 'GMS', gm: 'GMS', l: 'LTR', ltr: 'LTR', ml: 'MLT', pcs: 'PCS', pc: 'PCS', nos: 'NOS', box: 'BOX', pack: 'PAC', dozen: 'DOZ', m: 'MTR', mtr: 'MTR' };
+      const uqc = (v('uqc') || UNIT_UQC[(v('unit') || 'pcs').toLowerCase()] || 'NOS').toUpperCase();
+      if (!(UQC as readonly string[]).includes(uqc)) throw new Error(`uqc "${uqc}" is not a GST unit code (${UQC.join(', ')})`);
+      const plu = v('plu') || null;
+      if (plu && !/^\d{1,8}$/.test(plu)) throw new Error('plu must be 1-8 digits');
+      const qty = (c: string) => { if (!v(c)) return 0; const m = /^(\d{1,7})(?:\.(\d{1,3}))?$/.exec(v(c)); if (!m) throw new Error(`${c} "${v(c)}" is not a quantity`); return Number(m[1]) * 1000 + Number((m[2] ?? '').padEnd(3, '0')); };
+      const openingStockMilli = qty('opening_stock'), reorderLevelMilli = qty('reorder_level');
+      const batchTracked = yes('batch');
+      const batchNo = v('batch_no') || null;
+      let expiry = v('expiry') || null;
+      if (expiry) { const dm = /^(\d{2})[-/](\d{2})[-/](\d{4})$/.exec(expiry); if (dm) expiry = `${dm[3]}-${dm[2]}-${dm[1]}`; if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) throw new Error('expiry must be a date (DD-MM-YYYY or YYYY-MM-DD)'); }
+      if (batchTracked && openingStockMilli > 0 && !batchNo) throw new Error('opening_stock for a batch item needs batch_no');
       const isVeg = parseVeg(v('veg'));
       if (isVeg === undefined) throw new Error(`veg "${v('veg')}" is not understood (use veg, non-veg or leave empty)`);
       const written = v('category').replace(/\s+/g, ' ') || 'General';
@@ -468,17 +509,18 @@ export function previewItemsCsv(ctx: Ctx, csv: string): CsvPreview {
       if (!found && !fresh.has(ck)) { fresh.set(ck, written); newCategories.push(written); }
       const description = v('description').replace(/\s+/g, ' ') || null;
       if (description && description.length > 300) throw new Error('description is too long (300 characters at most)');
-      items.push({ name, category: found ? found.name : fresh.get(ck)!, newCategory: !found, price, taxPercent, hsn, barcode, unit: v('unit') || 'pcs', isVeg, description });
+      items.push({ name, category: found ? found.name : fresh.get(ck)!, newCategory: !found, price, taxPercent, hsn, barcode, unit: v('unit') || 'pcs', isVeg, description,
+        mrp, uqc, plu, weighed: yes('weighed'), batchTracked, purchasePrice: money('purchase_price'), reorderLevelMilli, openingStockMilli, batchNo, expiry });
     } catch (e) {
       errors.push({ row: n, message: (e as Error).message });
     }
   });
-  return { rows: rows.length - 1, errors, items, newCategories };
+  return { rows: rows.length - 1, errors, items, newCategories, skipped, warnings };
 }
 
 /** All-or-nothing import. Nothing is written if any row has an error. */
 export function importItemsCsv(ctx: Ctx, actor: Actor, requestId: string, csv: string) {
-  return runCommand(ctx, requestId, 'item.import_csv', actor, () => {
+  return retailCommand(ctx, requestId, 'item.import_csv', actor, () => {
     assertPerm(actor, 'catalog.write');
     const p = previewItemsCsv(ctx, csv);
     if (p.errors.length) throw new AppError('IMPORT_ERRORS', `${p.errors.length} row(s) have errors. Nothing was imported.`, 422, { errors: p.errors.slice(0, 50) });
@@ -500,11 +542,18 @@ export function importItemsCsv(ctx: Ctx, actor: Actor, requestId: string, csv: s
         else { const id = ctx.ids.next(); run(ctx.db, 'INSERT INTO tax_group(id, name, rate_bp, updated_at) VALUES (?,?,?,?)', id, `GST ${it.taxPercent / 100}%`, it.taxPercent, now); taxes.set(it.taxPercent, id); }
       }
       const id = ctx.ids.next();
-      run(ctx.db, 'INSERT INTO item(id, category_id, name, barcode, hsn_code, tax_group_id, price, unit, is_veg, description, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-        id, cats.get(ck)!, it.name, it.barcode, it.hsn, taxes.get(it.taxPercent)!, it.price, it.unit, it.isVeg === null ? null : it.isVeg ? 1 : 0, it.description, now);
+      run(ctx.db, `INSERT INTO item(id, category_id, name, barcode, hsn_code, tax_group_id, price, unit, is_veg, description, updated_at,
+                     mrp, uqc, plu, is_weighed, batch_tracked, purchase_price, reorder_level_milli) VALUES (?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?)`,
+        id, cats.get(ck)!, it.name, it.barcode, it.hsn, taxes.get(it.taxPercent)!, it.price, it.unit, it.isVeg === null ? null : it.isVeg ? 1 : 0, it.description, now,
+        it.mrp, it.uqc, it.plu, it.weighed ? 1 : 0, it.batchTracked ? 1 : 0, it.purchasePrice, it.reorderLevelMilli);
+      syncMainBarcode(ctx, id, null, it.barcode);
+      if (it.openingStockMilli > 0) {
+        const batchId = it.batchTracked ? findOrCreateBatch(ctx, id, { batchNo: it.batchNo!, expiryDate: it.expiry, mrp: it.mrp, cost: it.purchasePrice }) : null;
+        postMove(ctx, actor, { itemId: id, batchId, deltaMilli: it.openingStockMilli, kind: 'OPENING', refType: 'import', refId: requestId, unitCost: it.purchasePrice });
+      }
       emit(ctx, 'item', id, 'upsert', { id, name: it.name, price: it.price });
     }
     audit(ctx, actor.userId, 'item.import_csv', 'item', undefined, { count: p.items.length });
-    return { imported: p.items.length, categoriesCreated };
+    return { imported: p.items.length, categoriesCreated, skipped: p.skipped?.length ?? 0 };
   });
 }

@@ -22,7 +22,7 @@ function billText(scheme: 'regular' | 'composition') {
     const c = addLine(env.ctx, env.cashier, rid(), { orderId: o, itemId: oil, qtyMilli: 2000 });
     const bill = finalizeInvoice(env.ctx, env.cashier, rid(), { orderId: o, payments: [{ mode: 'CASH', amount: c.totals.grandTotal }] });
     const data = receiptDataFrom(loadInvoiceFull(env.ctx, bill.invoice.id));
-    return parseEscPos(buildReceipt(data, { cols: 48, copyNo: 1 })).text;
+    return parseEscPos(buildReceipt(data, { cols: 48, copyNo: 1, footer: '', drawer: false })).text;
   } finally { env.cleanup(); }
 }
 

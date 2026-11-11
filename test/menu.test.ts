@@ -75,17 +75,18 @@ test('bulk upload: strict veg column, integer tax parsing, duplicates refused, a
     assert.deepEqual(ok.items.map((i) => i.taxPercent), [500, 500, 500, 1800, 250]);
 
     const bad = previewItemsCsv(env.ctx, head + 'Thing,X,10,5,,,pcs,veggie\nCheese Burger,X,10,5,,,pcs,veg\nNew One,X,10,5,,,pcs,veg\nnew one,X,10,5,,,pcs,veg\nOdd Tax,X,10,5.555,,,pcs,\n');
-    assert.deepEqual(bad.errors.map((e) => e.row), [2, 3, 5, 6]);
+    assert.deepEqual(bad.errors.map((e) => e.row), [2, 5, 6]);
     assert.match(bad.errors[0]!.message, /veg/);
-    assert.match(bad.errors[1]!.message, /already on the menu/);
-    assert.match(bad.errors[2]!.message, /repeated/);
+    assert.deepEqual(bad.skipped, [{ row: 3, name: 'Cheese Burger' }], 'an item already there is skipped, not an error (a file can be imported again)');
+    assert.match(bad.errors[1]!.message, /repeated/);
 
     const r = importItemsCsv(env.ctx, env.manager, rid(), head + 'Paneer Tikka,Starters,249,5,,,pcs,veg\nChicken 65,Starters,269,5,,,pcs,non-veg\n');
     assert.equal(r.imported, 2);
     assert.equal(r.categoriesCreated, 1);
     assert.equal(get<{ v: number }>(env.ctx.db, "SELECT is_veg v FROM item WHERE name = 'Chicken 65'")!.v, 0);
-    // uploading the same file again is refused instead of creating duplicates
-    assert.equal(code(() => importItemsCsv(env.ctx, env.manager, rid(), head + 'Paneer Tikka,Starters,249,5,,,pcs,veg\n')), 'IMPORT_ERRORS');
+    // uploading the same file again creates no duplicates: the items already there are skipped
+    assert.deepEqual(importItemsCsv(env.ctx, env.manager, rid(), head + 'Paneer Tikka,Starters,249,5,,,pcs,veg\n'), { imported: 0, categoriesCreated: 0, skipped: 1 });
+    assert.equal(get<{ n: number }>(env.ctx.db, "SELECT count(*) n FROM item WHERE name = 'Paneer Tikka'")!.n, 1);
   } finally { env.cleanup(); }
 });
 
