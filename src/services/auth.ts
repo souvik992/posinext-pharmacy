@@ -1,0 +1,308 @@
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { all, get, run, AppError } from '../store/db.ts';
+import type { Actor, Ctx, Role } from './ctx.ts';
+import { getDevice } from './ctx.ts';
+import { audit } from './audit.ts';
+import { emit } from './outbox.ts';
+import { runCommand } from './commands.ts';
+import { assertPerm, can } from './permissions.ts';
+import type { Permission } from './permissions.ts';
+import { loadSettings, setSetting } from './settings.ts';
+import { validDevicePrefix } from '../core/numbering.ts';
+
+export function validPinFormat(pin: string): boolean { return /^\d{4,6}$/.test(pin); }
+
+/** Indian mobile number, 10 digits starting 6-9. Staff sign in with it. */
+export function validMobileFormat(m: string): boolean { return /^[6-9]\d{9}$/.test(m); }
+function checkMobile(m: string | null | undefined): string | null {
+  if (m === undefined || m === null || m === '') return null;
+  if (!validMobileFormat(m)) throw new AppError('VALIDATION', 'Mobile number must be 10 digits, starting with 6, 7, 8 or 9.');
+  return m;
+}
+/** Numbers stay taken by deactivated users too, so reactivating them never clashes. */
+function assertMobileFree(ctx: Ctx, mobile: string | null, exceptId: string | null) {
+  if (!mobile) return;
+  const clash = get<{ name: string }>(ctx.db, 'SELECT name FROM app_user WHERE mobile = ? AND deleted_at IS NULL AND id <> ?', mobile, exceptId ?? '');
+  if (clash) throw new AppError('MOBILE_TAKEN', `This mobile number is already used by ${clash.name}.`, 409);
+}
+
+export function hashPin(pin: string, cost: number): string {
+  const salt = randomBytes(16);
+  const h = scryptSync(pin, salt, 32, { N: cost, r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
+  return `s1$${cost}$${salt.toString('hex')}$${h.toString('hex')}`;
+}
+export function verifyPinHash(pin: string, stored: string): boolean {
+  const [tag, n, salt, hash] = stored.split('$');
+  if (tag !== 's1' || !n || !salt || !hash) return false;
+  const h = scryptSync(pin, Buffer.from(salt, 'hex'), 32, { N: Number(n), r: 8, p: 1, maxmem: 256 * 1024 * 1024 });
+  const expected = Buffer.from(hash, 'hex');
+  return h.length === expected.length && timingSafeEqual(h, expected);
+}
+
+interface UserRow { id: string; name: string; role: Role; mobile: string | null; pin_hash: string; failed_attempts: number; locked_until: number | null; active: number; deleted_at: number | null }
+
+const MAX_FAILS = 5;
+function recordFailure(ctx: Ctx, u: UserRow): void {
+  const fails = u.failed_attempts + 1;
+  const lockMs = fails >= MAX_FAILS ? Math.min(15 * 60_000, 30_000 * 2 ** (fails - MAX_FAILS)) : 0;
+  run(ctx.db, 'UPDATE app_user SET failed_attempts = ?, locked_until = ? WHERE id = ?', fails, lockMs ? ctx.clock.now() + lockMs : null, u.id);
+  audit(ctx, u.id, 'auth.fail', 'user', u.id, { fails, lockedMs: lockMs });
+}
+
+/** Checks a PIN with lockout/backoff. Failure bookkeeping survives a surrounding transaction rollback. */
+function checkPin(ctx: Ctx, u: UserRow | undefined, pin: string, insideTx: boolean): UserRow {
+  if (!u || !u.active || u.deleted_at) throw new AppError('BAD_PIN', 'Incorrect user or PIN.', 401);
+  const now = ctx.clock.now();
+  if (u.locked_until && u.locked_until > now) {
+    throw new AppError('LOCKED', `Too many wrong PINs. Try again in ${Math.ceil((u.locked_until - now) / 1000)} seconds.`, 429, { retryAfterMs: u.locked_until - now });
+  }
+  if (!validPinFormat(pin) || !verifyPinHash(pin, u.pin_hash)) {
+    const err = new AppError('BAD_PIN', 'Incorrect user or PIN.', 401);
+    if (insideTx) err.afterRollback = () => recordFailure(ctx, u);
+    else recordFailure(ctx, u);
+    throw err;
+  }
+  if (u.failed_attempts > 0 || u.locked_until) run(ctx.db, 'UPDATE app_user SET failed_attempts = 0, locked_until = NULL WHERE id = ?', u.id);
+  return u;
+}
+const userRow = (ctx: Ctx, id: string) => get<UserRow>(ctx.db, 'SELECT * FROM app_user WHERE id = ?', id);
+
+export interface Override { userId: string; pin: string }
+
+/** Manager/owner approval for actions a cashier cannot do alone. Returns who approved. */
+export function requireApproval(ctx: Ctx, actor: Actor, perm: Permission, override: Override | undefined | null, insideTx = true): string {
+  if (can(actor.role, perm)) return actor.userId;
+  if (!override) throw new AppError('APPROVAL_REQUIRED', 'A manager or owner must approve this.', 403, { permission: perm });
+  const u = checkPin(ctx, userRow(ctx, override.userId), override.pin, insideTx);
+  if (!can(u.role, perm)) throw new AppError('APPROVAL_REQUIRED', 'That user cannot approve this action.', 403, { permission: perm });
+  audit(ctx, u.id, 'approval.granted', 'user', actor.userId, { permission: perm });
+  return u.id;
+}
+
+/** The signed-in user types their PIN again before a step that cannot be undone from the screen (restoring a backup). */
+export function confirmPin(ctx: Ctx, actor: Actor, pin: string): void {
+  checkPin(ctx, userRow(ctx, actor.userId), pin, false);
+}
+
+export function login(ctx: Ctx, userId: string, pin: string): { token: string; user: Actor } {
+  const u = checkPin(ctx, userRow(ctx, userId), pin, false);
+  const token = randomBytes(32).toString('hex');
+  const actor: Actor = { userId: u.id, role: u.role, name: u.name };
+  const now = ctx.clock.now();
+  ctx.sessions.set(token, { ...actor, token, lastSeen: now, savedAt: now });
+  run(ctx.db, 'INSERT INTO app_session(token_hash, user_id, created_at, last_seen) VALUES (?,?,?,?)', tokenHash(token), u.id, now, now);
+  audit(ctx, u.id, 'auth.login', 'user', u.id);
+  return { token, user: actor };
+}
+/** Sign-in with mobile number and PIN. An unknown number gets the same answer as a wrong PIN. */
+export function loginByMobile(ctx: Ctx, mobile: string, pin: string): { token: string; user: Actor } {
+  const u = validMobileFormat(mobile) ? get<UserRow>(ctx.db, 'SELECT * FROM app_user WHERE mobile = ? AND deleted_at IS NULL', mobile) : undefined;
+  if (!u) throw new AppError('BAD_PIN', 'Incorrect mobile number or PIN.', 401);
+  try { return login(ctx, u.id, pin); } catch (e) {
+    if (e instanceof AppError && e.code === 'BAD_PIN') throw new AppError('BAD_PIN', 'Incorrect mobile number or PIN.', 401);
+    throw e;
+  }
+}
+export function logout(ctx: Ctx, token: string): void { endSession(ctx, token); }
+
+// Sign-ins survive closing, a crash and a restart of the POS (restoring a backup's own sessions aside): the token's
+// SHA-256 is kept in app_session, never the token. Time never signs anyone out and nothing locks by itself (the owner's
+// choice: a busy counter must not lose its cashier); only sign-out, deactivating the user or the lock button do. A
+// locked sign-in (locked_at) stays locked across a restart until the same person's PIN is entered.
+const SAVE_EVERY_MS = 60_000; // last-seen is written at most once a minute per sign-in
+const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
+function endSession(ctx: Ctx, token: string): void {
+  ctx.sessions.delete(token);
+  run(ctx.db, 'DELETE FROM app_session WHERE token_hash = ?', tokenHash(token));
+}
+/** A sign-in from before a restart, if it is still known. */
+function storedSession(ctx: Ctx, token: string) {
+  const r = get<{ user_id: string; last_seen: number; locked_at: number | null }>(ctx.db, 'SELECT user_id, last_seen, locked_at FROM app_session WHERE token_hash = ?', tokenHash(token));
+  if (!r) return undefined;
+  const u = userRow(ctx, r.user_id);
+  if (!u) return undefined;
+  const s = { userId: u.id, role: u.role, name: u.name, token, lastSeen: r.last_seen, savedAt: r.last_seen, locked: r.locked_at !== null };
+  ctx.sessions.set(token, s);
+  return s;
+}
+/** Forgets sign-ins of users who were deactivated or removed (called at start-up). Time alone never ends a sign-in. */
+export function pruneSessions(ctx: Ctx): number {
+  return Number(run(ctx.db, 'DELETE FROM app_session WHERE user_id IN (SELECT id FROM app_user WHERE active = 0 OR deleted_at IS NOT NULL)').changes);
+}
+
+/** The lock button: this sign-in needs its own PIN again before anything else (kept across a restart). */
+export function lockSession(ctx: Ctx, token: string | undefined): void {
+  const actor = authenticate(ctx, token);
+  const s = ctx.sessions.get(token!)!;
+  s.locked = true;
+  run(ctx.db, 'UPDATE app_session SET locked_at = ? WHERE token_hash = ?', ctx.clock.now(), tokenHash(token!));
+  audit(ctx, actor.userId, 'auth.lock', 'user', actor.userId);
+}
+/** Unlocks with the PIN of the person who is signed in (wrong PINs count toward the usual PIN lockout). */
+export function unlockSession(ctx: Ctx, token: string | undefined, pin: string): Actor {
+  const s = token ? ctx.sessions.get(token) ?? storedSession(ctx, token) : undefined;
+  if (!s) throw new AppError('UNAUTHENTICATED', 'Please sign in.', 401);
+  const u = checkPin(ctx, userRow(ctx, s.userId), pin, false);
+  if (!u.active || u.deleted_at) { endSession(ctx, s.token); throw new AppError('UNAUTHENTICATED', 'Please sign in.', 401); }
+  s.locked = false; s.lastSeen = ctx.clock.now();
+  run(ctx.db, 'UPDATE app_session SET locked_at = NULL, last_seen = ? WHERE token_hash = ?', s.lastSeen, tokenHash(s.token));
+  audit(ctx, u.id, 'auth.unlock', 'user', u.id);
+  return { userId: u.id, role: u.role, name: u.name };
+}
+
+export function authenticate(ctx: Ctx, token: string | undefined): Actor {
+  const s = token ? ctx.sessions.get(token) ?? storedSession(ctx, token) : undefined;
+  if (!s) throw new AppError('UNAUTHENTICATED', 'Please sign in.', 401);
+  if (s.locked) throw new AppError('SESSION_LOCKED', `Locked. ${s.name}, enter your PIN to continue.`, 401, { userId: s.userId, name: s.name });
+  const now = ctx.clock.now();
+  s.lastSeen = now;
+  if (now - (s.savedAt ?? 0) >= SAVE_EVERY_MS) { s.savedAt = now; run(ctx.db, 'UPDATE app_session SET last_seen = ? WHERE token_hash = ?', now, tokenHash(s.token)); }
+  const u = userRow(ctx, s.userId);
+  if (!u || !u.active || u.deleted_at) { endSession(ctx, s.token); throw new AppError('UNAUTHENTICATED', 'Please sign in.', 401); }
+  return { userId: s.userId, role: u.role, name: u.name };
+}
+
+/** Before sign-in: names for the approval dialog and for staff who have no mobile number yet. Numbers themselves are not shown. */
+export function listLoginUsers(ctx: Ctx) {
+  return all<{ id: string; name: string; role: Role; has_mobile: number }>(ctx.db, 'SELECT id, name, role, mobile IS NOT NULL AS has_mobile FROM app_user WHERE active = 1 AND deleted_at IS NULL ORDER BY name')
+    .map((u) => ({ id: u.id, name: u.name, role: u.role, hasMobile: u.has_mobile === 1 }));
+}
+
+/** The login screen picks people by name, so two active users may not share one (case-insensitive). */
+function assertNameFree(ctx: Ctx, name: string, exceptId: string | null) {
+  const clash = get<{ id: string }>(ctx.db, "SELECT id FROM app_user WHERE active = 1 AND deleted_at IS NULL AND lower(name) = lower(?) AND id <> ?", name, exceptId ?? '');
+  if (clash) throw new AppError('NAME_TAKEN', `Someone called "${name}" already signs in here. Add a surname or initial so the login screen tells them apart.`, 409);
+}
+
+/** Everyone who has an account (also deactivated ones), for the owner's Users screen. PIN hashes never leave the backend. */
+export function listUsers(ctx: Ctx, actor: Actor) {
+  assertPerm(actor, 'user.manage');
+  const now = ctx.clock.now();
+  return all<{ id: string; name: string; role: Role; mobile: string | null; active: number; locked_until: number | null; created_at: number }>(ctx.db,
+    'SELECT id, name, role, mobile, active, locked_until, created_at FROM app_user WHERE deleted_at IS NULL ORDER BY active DESC, lower(name)')
+    .map((u) => ({ id: u.id, name: u.name, role: u.role, mobile: u.mobile, active: u.active === 1, locked: u.locked_until !== null && u.locked_until > now, createdAt: u.created_at, you: u.id === actor.userId }));
+}
+
+export function createUser(ctx: Ctx, actor: Actor, requestId: string, input: { name: string; role: Role; pin: string; mobile?: string | null }) {
+  return runCommand(ctx, requestId, 'user.create', actor, () => {
+    assertPerm(actor, 'user.manage');
+    if (!input.name.trim() || input.name.length > 60) throw new AppError('VALIDATION', 'Name must be 1-60 characters.');
+    if (!['owner', 'manager', 'cashier'].includes(input.role)) throw new AppError('VALIDATION', 'Invalid role.');
+    if (!validPinFormat(input.pin)) throw new AppError('VALIDATION', 'PIN must be 4-6 digits.');
+    const mobile = checkMobile(input.mobile);
+    assertNameFree(ctx, input.name.trim(), null);
+    assertMobileFree(ctx, mobile, null);
+    const id = ctx.ids.next();
+    const now = ctx.clock.now();
+    run(ctx.db, 'INSERT INTO app_user(id, name, role, mobile, pin_hash, created_at, updated_at) VALUES (?,?,?,?,?,?,?)', id, input.name.trim(), input.role, mobile, hashPin(input.pin, ctx.scryptCost), now, now);
+    audit(ctx, actor.userId, 'user.create', 'user', id, { role: input.role });
+    emit(ctx, 'user', id, 'upsert', { id, name: input.name.trim(), role: input.role });
+    return { id, name: input.name.trim(), role: input.role };
+  });
+}
+
+export function changePin(ctx: Ctx, actor: Actor, requestId: string, input: { userId: string; newPin: string; currentPin?: string }) {
+  return runCommand(ctx, requestId, 'user.change_pin', actor, () => {
+    if (!validPinFormat(input.newPin)) throw new AppError('VALIDATION', 'PIN must be 4-6 digits.');
+    const target = userRow(ctx, input.userId);
+    if (!target || target.deleted_at) throw new AppError('NOT_FOUND', 'User not found.', 404);
+    if (input.userId === actor.userId) checkPin(ctx, target, input.currentPin ?? '', true);
+    else assertPerm(actor, 'user.manage');
+    run(ctx.db, 'UPDATE app_user SET pin_hash = ?, failed_attempts = 0, locked_until = NULL, version = version + 1, updated_at = ? WHERE id = ?', hashPin(input.newPin, ctx.scryptCost), ctx.clock.now(), input.userId);
+    audit(ctx, actor.userId, 'user.change_pin', 'user', input.userId);
+    return { ok: true };
+  });
+}
+
+/** Changes a person's name or role (owner only). Takes effect on their next action (roles are read on every request). */
+export function updateUser(ctx: Ctx, actor: Actor, requestId: string, input: { userId: string; name: string; role: Role; mobile?: string | null }) {
+  return runCommand(ctx, requestId, 'user.update', actor, () => {
+    assertPerm(actor, 'user.manage');
+    const u = userRow(ctx, input.userId);
+    if (!u || u.deleted_at) throw new AppError('NOT_FOUND', 'User not found.', 404);
+    const name = input.name.trim();
+    if (!name || name.length > 60) throw new AppError('VALIDATION', 'Name must be 1-60 characters.');
+    if (!['owner', 'manager', 'cashier'].includes(input.role)) throw new AppError('VALIDATION', 'Invalid role.');
+    if (u.id === actor.userId && input.role !== u.role) throw new AppError('OWN_ROLE', 'You cannot change your own role. Another owner can.', 409);
+    if (u.role === 'owner' && input.role !== 'owner' && u.active) {
+      const owners = get<{ n: number }>(ctx.db, "SELECT count(*) n FROM app_user WHERE role='owner' AND active=1 AND deleted_at IS NULL")!.n;
+      if (owners <= 1) throw new AppError('LAST_OWNER', 'The shop needs at least one owner.', 409);
+    }
+    const mobile = input.mobile === undefined ? u.mobile : checkMobile(input.mobile);
+    if (u.active) assertNameFree(ctx, name, u.id);
+    assertMobileFree(ctx, mobile, u.id);
+    if (name === u.name && input.role === u.role && mobile === u.mobile) return { id: u.id, name, role: u.role };
+    run(ctx.db, 'UPDATE app_user SET name = ?, role = ?, mobile = ?, version = version + 1, updated_at = ? WHERE id = ?', name, input.role, mobile, ctx.clock.now(), u.id);
+    audit(ctx, actor.userId, 'user.update', 'user', u.id, { before: { name: u.name, role: u.role, mobileSet: u.mobile !== null }, after: { name, role: input.role, mobileSet: mobile !== null, mobileChanged: mobile !== u.mobile } });
+    emit(ctx, 'user', u.id, 'upsert', { id: u.id, name, role: input.role });
+    return { id: u.id, name, role: input.role };
+  });
+}
+
+/** Lets someone who left sign in again (owner only). Their old PIN works; the lock is cleared. */
+export function reactivateUser(ctx: Ctx, actor: Actor, requestId: string, userId: string) {
+  return runCommand(ctx, requestId, 'user.reactivate', actor, () => {
+    assertPerm(actor, 'user.manage');
+    const u = userRow(ctx, userId);
+    if (!u || u.deleted_at) throw new AppError('NOT_FOUND', 'User not found.', 404);
+    if (u.active) return { ok: true };
+    assertNameFree(ctx, u.name, u.id);
+    run(ctx.db, 'UPDATE app_user SET active = 1, failed_attempts = 0, locked_until = NULL, version = version + 1, updated_at = ? WHERE id = ?', ctx.clock.now(), userId);
+    audit(ctx, actor.userId, 'user.reactivate', 'user', userId);
+    return { ok: true };
+  });
+}
+
+export function deactivateUser(ctx: Ctx, actor: Actor, requestId: string, userId: string) {
+  return runCommand(ctx, requestId, 'user.deactivate', actor, () => {
+    assertPerm(actor, 'user.manage');
+    const u = userRow(ctx, userId);
+    if (!u || u.deleted_at) throw new AppError('NOT_FOUND', 'User not found.', 404);
+    if (u.role === 'owner') {
+      const owners = get<{ n: number }>(ctx.db, "SELECT count(*) n FROM app_user WHERE role='owner' AND active=1 AND deleted_at IS NULL")!.n;
+      if (owners <= 1) throw new AppError('LAST_OWNER', 'The last active owner cannot be deactivated.', 409);
+    }
+    if (userId === actor.userId) throw new AppError('SELF', 'You cannot deactivate yourself.', 409);
+    run(ctx.db, 'UPDATE app_user SET active = 0, version = version + 1, updated_at = ? WHERE id = ?', ctx.clock.now(), userId);
+    for (const [t, s] of ctx.sessions) if (s.userId === userId) ctx.sessions.delete(t);
+    run(ctx.db, 'DELETE FROM app_session WHERE user_id = ?', userId);
+    audit(ctx, actor.userId, 'user.deactivate', 'user', userId);
+    return { ok: true };
+  });
+}
+
+export interface SetupInput {
+  outlet: { name: string; gstin?: string | null; fssaiNo?: string | null; stateCode: string; address?: string | null; phone?: string | null };
+  device: { name: string; seriesPrefix: string };
+  owner: { name: string; pin: string; mobile?: string | null };
+}
+
+/** First-run setup. Only allowed while no user exists. Creates outlet, device, owner and starter GST groups. */
+export function setupFirstRun(ctx: Ctx, requestId: string, input: SetupInput) {
+  return runCommand(ctx, requestId, 'setup.first_run', null, () => {
+    if (get<{ n: number }>(ctx.db, 'SELECT count(*) n FROM app_user')!.n > 0) throw new AppError('ALREADY_SETUP', 'Setup has already been completed.', 409);
+    if (!input.outlet.name.trim()) throw new AppError('VALIDATION', 'Business name is required.');
+    if (!/^\d{2}$/.test(input.outlet.stateCode)) throw new AppError('VALIDATION', 'State code must be 2 digits (for example 29).');
+    if (input.outlet.gstin && !/^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(input.outlet.gstin)) throw new AppError('VALIDATION', 'GSTIN format is invalid.');
+    if (!validDevicePrefix(input.device.seriesPrefix)) throw new AppError('VALIDATION', 'Series prefix must be 1-2 capital letters or digits.');
+    if (!validPinFormat(input.owner.pin)) throw new AppError('VALIDATION', 'PIN must be 4-6 digits.');
+    const ownerMobile = checkMobile(input.owner.mobile);
+    const now = ctx.clock.now();
+    const outletId = ctx.ids.next();
+    const deviceId = ctx.ids.next();
+    const ownerId = ctx.ids.next();
+    run(ctx.db, 'INSERT INTO outlet(id, name, gstin, fssai_no, state_code, address, phone, created_at) VALUES (?,?,?,?,?,?,?,?)',
+      outletId, input.outlet.name.trim(), input.outlet.gstin ?? null, input.outlet.fssaiNo ?? null, input.outlet.stateCode, input.outlet.address ?? null, input.outlet.phone ?? null, now);
+    run(ctx.db, 'INSERT INTO device(id, outlet_id, name, series_prefix, created_at) VALUES (?,?,?,?,?)', deviceId, outletId, input.device.name, input.device.seriesPrefix, now);
+    run(ctx.db, 'INSERT INTO app_user(id, name, role, mobile, pin_hash, created_at, updated_at) VALUES (?,?,?,?,?,?,?)', ownerId, input.owner.name.trim(), 'owner', ownerMobile, hashPin(input.owner.pin, ctx.scryptCost), now, now);
+    for (const [name, bp] of [['GST 0%', 0], ['GST 5%', 500], ['GST 12%', 1200], ['GST 18%', 1800]] as const) {
+      run(ctx.db, 'INSERT INTO tax_group(id, name, rate_bp, cess_bp, price_includes_tax, updated_at) VALUES (?,?,?,?,1,?)', ctx.ids.next(), name, bp, 0, now);
+    }
+    setSetting(ctx, 'device_id', deviceId);
+    audit(ctx, ownerId, 'setup.first_run', 'outlet', outletId);
+    emit(ctx, 'outlet', outletId, 'upsert', { id: outletId, name: input.outlet.name, stateCode: input.outlet.stateCode });
+    ctx.deviceCache = null;
+    return { outletId, deviceId, ownerId };
+  });
+}
+export { getDevice };
