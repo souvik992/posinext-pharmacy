@@ -632,6 +632,58 @@ CREATE TRIGGER purchase_return_fixed BEFORE UPDATE ON purchase_return BEGIN SELE
 CREATE TRIGGER purchase_return_line_fixed BEFORE UPDATE ON purchase_return_line BEGIN SELECT RAISE(ABORT, 'debit notes are fixed'); END;
 `;
 
+// V18 (Retail POS): retail billing. Customers keyed by mobile, with GSTIN for B2B, a credit limit and days; khata
+// (customer ledger: sales on credit add, receipts and returns take away). Cart and bill lines carry the batch sold, its
+// MRP and the GST unit (UQC); a bill carries its customer and its GST scheme (a composition dealer issues a Bill of
+// Supply with no tax).
+const V18 = `
+CREATE TABLE customer (
+  id TEXT PRIMARY KEY, mobile TEXT NOT NULL, name TEXT, gstin TEXT, state_code TEXT, address TEXT,
+  credit_limit INTEGER NOT NULL DEFAULT 0 CHECK (credit_limit >= 0), credit_days INTEGER NOT NULL DEFAULT 0 CHECK (credit_days >= 0),
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE UNIQUE INDEX customer_mobile ON customer(mobile) WHERE deleted_at IS NULL;
+CREATE TABLE customer_ledger (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, customer_id TEXT NOT NULL REFERENCES customer(id),
+  kind TEXT NOT NULL CHECK (kind IN ('OPENING','SALE','SALE_CANCEL','RETURN','RECEIPT','ADJUST')),
+  amount INTEGER NOT NULL CHECK (amount <> 0), ref_id TEXT, mode TEXT, note TEXT, shift_id TEXT, created_by TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX customer_ledger_customer ON customer_ledger(customer_id, seq);
+CREATE TRIGGER customer_ledger_no_update BEFORE UPDATE ON customer_ledger BEGIN SELECT RAISE(ABORT, 'ledger entries are immutable'); END;
+CREATE TRIGGER customer_ledger_no_delete BEFORE DELETE ON customer_ledger BEGIN SELECT RAISE(ABORT, 'ledger entries are immutable'); END;
+
+ALTER TABLE sale_order ADD COLUMN customer_id TEXT REFERENCES customer(id);
+ALTER TABLE sale_order_line ADD COLUMN batch_id TEXT REFERENCES batch(id);
+ALTER TABLE sale_order_line ADD COLUMN mrp INTEGER;
+ALTER TABLE invoice ADD COLUMN customer_id TEXT;
+ALTER TABLE invoice ADD COLUMN gst_scheme TEXT NOT NULL DEFAULT 'regular' CHECK (gst_scheme IN ('regular','composition'));
+ALTER TABLE invoice_line ADD COLUMN batch_id TEXT;
+ALTER TABLE invoice_line ADD COLUMN mrp INTEGER;
+ALTER TABLE invoice_line ADD COLUMN uqc TEXT;
+CREATE INDEX invoice_customer ON invoice(customer_id) WHERE customer_id IS NOT NULL;
+CREATE TRIGGER invoice_retail_fixed BEFORE UPDATE OF customer_id, gst_scheme ON invoice
+  BEGIN SELECT RAISE(ABORT, 'a finalized invoice is immutable'); END;
+`;
+
+// V19 (Retail POS): cash counted note by note when a shift opens and closes; stock take (count shelves with the
+// scanner, then post the differences as COUNT stock moves).
+const V19 = `
+CREATE TABLE shift_cash_count (
+  id TEXT PRIMARY KEY, shift_id TEXT NOT NULL REFERENCES shift(id), kind TEXT NOT NULL CHECK (kind IN ('OPEN','CLOSE')),
+  denom INTEGER NOT NULL CHECK (denom > 0), count INTEGER NOT NULL CHECK (count >= 0), created_at INTEGER NOT NULL,
+  UNIQUE (shift_id, kind, denom)
+);
+CREATE TABLE stock_count (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL CHECK (status IN ('OPEN','POSTED','CANCELLED')),
+  created_by TEXT NOT NULL, created_at INTEGER NOT NULL, posted_at INTEGER, posted_by TEXT
+);
+CREATE TABLE stock_count_line (
+  id TEXT PRIMARY KEY, count_id TEXT NOT NULL REFERENCES stock_count(id), item_id TEXT NOT NULL REFERENCES item(id),
+  batch_key TEXT NOT NULL DEFAULT '', counted_milli INTEGER NOT NULL CHECK (counted_milli >= 0), system_milli INTEGER,
+  updated_at INTEGER NOT NULL, UNIQUE (count_id, item_id, batch_key)
+);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: 'initial', sql: V1 },
   { version: 2, name: 'inventory', sql: V2 },
@@ -650,5 +702,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 15, name: 'licence', sql: V15 },
   { version: 16, name: 'retail_items', sql: V16 },
   { version: 17, name: 'retail_purchasing', sql: V17 },
+  { version: 18, name: 'retail_billing', sql: V18 },
+  { version: 19, name: 'retail_counts', sql: V19 },
 ];
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

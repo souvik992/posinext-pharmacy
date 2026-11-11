@@ -11,22 +11,52 @@ import { colsFor } from './printing/transports.ts';
 import type { PrinterRow } from './printing/transports.ts';
 import { enqueueJob } from './printing/jobs.ts';
 import { openShiftRow } from './orders.ts';
+import { journalTracked, trackInserts } from './retailJournal.ts';
 import { camelAll } from './camel.ts';
 import { formatINR } from '../core/money.ts';
 import { istDateTime } from '../core/numbering.ts';
 
 const MAX_CASH = 1_000_000_000;
 
-export function openShift(ctx: Ctx, actor: Actor, requestId: string, input: { openingCash: number }) {
+/** Indian notes and coins in paise (the Rs 2000 note is still legal tender). */
+export const DENOMINATIONS = [200000, 50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100] as const;
+
+/** Cash counted note by note: { 50000: 4, 10000: 12, ... } -> total in paise. Unknown notes are refused. */
+export function countTotal(d: Record<string, number>): number {
+  let t = 0;
+  for (const [k, n] of Object.entries(d)) {
+    const v = Number(k);
+    if (!(DENOMINATIONS as readonly number[]).includes(v)) throw new AppError('VALIDATION', `${k} paise is not an Indian note or coin.`);
+    if (!Number.isSafeInteger(n) || n < 0 || n > 100000) throw new AppError('VALIDATION', 'Note counts must be whole numbers, zero or more.');
+    t += v * n;
+  }
+  return t;
+}
+
+function saveCount(ctx: Ctx, shiftId: string, kind: 'OPEN' | 'CLOSE', d: Record<string, number>) {
+  for (const [k, n] of Object.entries(d)) if (n > 0) run(ctx.db, 'INSERT INTO shift_cash_count (id, shift_id, kind, denom, count, created_at) VALUES (?,?,?,?,?,?)', ctx.ids.next(), shiftId, kind, Number(k), n, ctx.clock.now());
+}
+
+export function cashCount(ctx: Ctx, shiftId: string) {
+  const rows = all<{ kind: 'OPEN' | 'CLOSE'; denom: number; count: number }>(ctx.db, 'SELECT kind, denom, count FROM shift_cash_count WHERE shift_id = ? ORDER BY denom DESC', shiftId);
+  const pick = (k: 'OPEN' | 'CLOSE') => rows.filter((r) => r.kind === k).map((r) => ({ denom: r.denom, count: r.count }));
+  return { open: pick('OPEN'), close: pick('CLOSE') };
+}
+
+export function openShift(ctx: Ctx, actor: Actor, requestId: string, input: { openingCash: number; denominations?: Record<string, number> }) {
   return runCommand(ctx, requestId, 'shift.open', actor, (h) => {
     assertPerm(actor, 'shift.use');
+    const track = trackInserts(ctx);
+    if (input.denominations && countTotal(input.denominations) !== input.openingCash) throw new AppError('VALIDATION', 'The notes counted do not add up to the opening cash.');
     if (!Number.isSafeInteger(input.openingCash) || input.openingCash < 0 || input.openingCash > MAX_CASH) throw new AppError('VALIDATION', 'Opening cash must be a non-negative whole number of paise.');
     if (openShiftRow(ctx)) throw new AppError('SHIFT_ALREADY_OPEN', 'A shift is already open on this counter.', 409);
     const id = ctx.ids.next(); const now = ctx.clock.now(); const device = getDevice(ctx);
     run(ctx.db, 'INSERT INTO shift(id, device_id, user_id, opened_at, opening_cash) VALUES (?,?,?,?,?)', id, device.id, actor.userId, now, input.openingCash);
+    if (input.denominations) saveCount(ctx, id, 'OPEN', input.denominations);
     audit(ctx, actor.userId, 'shift.open', 'shift', id, { openingCash: input.openingCash });
     emit(ctx, 'shift', id, 'open', { id, openedAt: now, openingCash: input.openingCash });
     h.after(() => appendJournal(ctx, { v: 1, type: 'shift_open', at: now, shift: { id, deviceId: device.id, userId: actor.userId, openedAt: now, openingCash: input.openingCash } }));
+    journalTracked(ctx, h, 'shift.open', track);
     return { id, openedAt: now, openingCash: input.openingCash };
   });
 }
@@ -55,19 +85,25 @@ export function zReport(ctx: Ctx, shiftId: string) {
   const tax = camelAll(all(ctx.db, `SELECT l.rate_bp, sum(${SIGNED('l.taxable')}) AS taxable, sum(${SIGNED('l.cgst')}) AS cgst, sum(${SIGNED('l.sgst')}) AS sgst,
       sum(${SIGNED('l.igst')}) AS igst, sum(${SIGNED('l.cess')}) AS cess FROM invoice_line l JOIN invoice i ON i.id = l.invoice_id
       WHERE i.shift_id = ? AND i.status = 'ISSUED' GROUP BY l.rate_bp ORDER BY l.rate_bp`, shiftId));
-  const cashNet = modes.find((m) => m.mode === 'CASH')?.amount ?? 0;
+  // khata: dues collected during the shift (cash ones are in the drawer)
+  const dues = all<{ mode: string; amount: number }>(ctx.db, "SELECT mode, -sum(amount) AS amount FROM customer_ledger WHERE shift_id = ? AND kind = 'RECEIPT' GROUP BY mode ORDER BY mode", shiftId);
+  const dueCash = dues.find((d) => d.mode === 'CASH')?.amount ?? 0;
+  const cashNet = (modes.find((m) => m.mode === 'CASH')?.amount ?? 0) + dueCash;
   const expected = s.opening_cash + cashNet;
   return {
     shiftId: s.id, openedAt: s.opened_at, closedAt: s.closed_at, openedBy: s.user_id,
     invoices: agg.invoices, sales: agg.sales, discounts: agg.discounts, cancelled: agg.cancelled, cancelledAmount: agg.cancelled_amount, creditNotes: agg.credit_notes, refunds: agg.refunds,
     byMode: Object.fromEntries(modes.map((m) => [m.mode, m.amount])), taxByRate: tax,
+    duesCollected: Object.fromEntries(dues.map((d) => [d.mode, d.amount])), cashCount: cashCount(ctx, s.id),
     cash: { opening: s.opening_cash, net: cashNet, expected, counted: s.counted_cash, difference: s.counted_cash === null ? null : s.counted_cash - expected },
   };
 }
 
-export function closeShift(ctx: Ctx, actor: Actor, requestId: string, input: { countedCash: number; discardOpenOrders?: boolean }) {
+export function closeShift(ctx: Ctx, actor: Actor, requestId: string, input: { countedCash: number; denominations?: Record<string, number>; discardOpenOrders?: boolean }) {
   return runCommand(ctx, requestId, 'shift.close', actor, (h) => {
     assertPerm(actor, 'shift.use');
+    const track = trackInserts(ctx);
+    if (input.denominations && countTotal(input.denominations) !== input.countedCash) throw new AppError('VALIDATION', 'The notes counted do not add up to the counted cash.');
     const s = openShiftRow(ctx);
     if (!s) throw new AppError('NO_OPEN_SHIFT', 'There is no open shift.', 409);
     if (s.user_id !== actor.userId && !can(actor.role, 'shift.force_close')) throw new AppError('FORBIDDEN', 'Only the cashier who opened the shift, or a manager, can close it.', 403);
@@ -82,6 +118,7 @@ export function closeShift(ctx: Ctx, actor: Actor, requestId: string, input: { c
     const now = ctx.clock.now();
     const before = zReport(ctx, s.id);
     run(ctx.db, 'UPDATE shift SET closed_at = ?, closed_by = ?, expected_cash = ?, counted_cash = ? WHERE id = ?', now, actor.userId, before.cash.expected, input.countedCash, s.id);
+    if (input.denominations) saveCount(ctx, s.id, 'CLOSE', input.denominations);
     audit(ctx, actor.userId, 'shift.close', 'shift', s.id, { expected: before.cash.expected, counted: input.countedCash });
     emit(ctx, 'shift', s.id, 'close', { id: s.id, closedAt: now });
     const report = zReport(ctx, s.id);
@@ -89,13 +126,14 @@ export function closeShift(ctx: Ctx, actor: Actor, requestId: string, input: { c
     const rows: Array<[string, string] | string> = [
       ['Opened', istDateTime(report.openedAt)], ['Closed', istDateTime(now)], '', ['Invoices', String(report.invoices)], ['Sales', formatINR(Number(report.sales), '')],
       ['Discounts', formatINR(Number(report.discounts), '')], ['Cancelled', `${report.cancelled} / ${formatINR(Number(report.cancelledAmount), '')}`],
-      ['Refunds', `${report.creditNotes} / ${formatINR(Number(report.refunds), '')}`], '', ...Object.entries(report.byMode).map(([m, a]): [string, string] => [m, formatINR(Number(a), '')]), '',
+      ['Refunds', `${report.creditNotes} / ${formatINR(Number(report.refunds), '')}`], '', ...Object.entries(report.duesCollected).map(([m, a]): [string, string] => [`Dues collected ${m}`, formatINR(Number(a), '')]), ...Object.entries(report.byMode).map(([m, a]): [string, string] => [m, formatINR(Number(a), '')]), '',
       ['Opening cash', formatINR(report.cash.opening, '')], ['Expected cash', formatINR(report.cash.expected, '')], ['Counted cash', formatINR(input.countedCash, '')], ['Difference', formatINR(report.cash.difference ?? 0, '')],
     ];
     for (const pr of all<PrinterRow>(ctx.db, 'SELECT * FROM printer WHERE active = 1 AND is_receipt = 1')) {
       enqueueJob(ctx, { kind: 'REPORT', refId: s.id, printerId: pr.id, payload: buildTextReport(colsFor(pr.width_mm), 'SHIFT REPORT (Z)', rows), dedupeKey: `zreport:${s.id}:${pr.id}` });
     }
     h.after(() => appendJournal(ctx, { v: 1, type: 'shift_close', at: now, shiftId: s.id, closedBy: actor.userId, expectedCash: before.cash.expected, countedCash: input.countedCash }));
+    journalTracked(ctx, h, 'shift.close', track);
     return report;
   });
 }

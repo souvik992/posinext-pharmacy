@@ -21,6 +21,10 @@ import { consumeForInvoice, reverseInvoiceConsumption } from './stock.ts';
 import { queueInvoicePrints, reprintInvoice as reprintImpl } from './printing/jobs.ts';
 import type { PrintSummary } from './printing/jobs.ts';
 import { camelAll } from './camel.ts';
+import { getSetting } from './settings.ts';
+import { isComposition } from './orders.ts';
+import { afterCancel, afterCreditNote, afterSale } from './retailSale.ts';
+import { journalTracked, trackInserts } from './retailJournal.ts';
 
 const MODES = ['CASH', 'UPI', 'CARD', 'WALLET', 'CREDIT', 'OTHER'];
 export interface PaymentInput { mode: string; amount: number; tendered?: number | null; reference?: string | null }
@@ -53,6 +57,7 @@ const taxOf = (v: { cgst: number; sgst: number; igst: number; cess: number }) =>
 export function finalizeInvoice(ctx: Ctx, actor: Actor, requestId: string, input: { orderId: string; payments: PaymentInput[]; override?: Override; print?: { receipt?: boolean; kot?: boolean } }) {
   return runCommand(ctx, requestId, 'invoice.finalize', actor, (h) => {
     assertPerm(actor, 'invoice.finalize');
+    const track = trackInserts(ctx);
     assertDiskOk(ctx);
     const order = getOrderRow(ctx, input.orderId);
     if (order.status === 'INVOICED') throw new AppError('ORDER_ALREADY_INVOICED', 'This order has already been billed.', 409);
@@ -80,15 +85,19 @@ export function finalizeInvoice(ctx: Ctx, actor: Actor, requestId: string, input
       invoiceNo: num.invoiceNo, issuedAt: now, buyerGstin: fresh.buyer_gstin, placeOfSupply, tokenNo: order.token_no,
       grossTotal: calc.grossTotal, discountTotal: calc.discountTotal, taxableTotal: calc.taxableTotal, cgst: calc.cgst, sgst: calc.sgst, igst: calc.igst, cess: calc.cess,
       roundOff: calc.roundOff, grandTotal: calc.grandTotal, status: 'ISSUED', originalInvoiceId: null, createdBy: actor.userId,
+      customerId: fresh.customer_id, gstScheme: isComposition(ctx) ? 'composition' : 'regular',
     };
     const lrecs: LineRecord[] = lines.map((l, i) => {
       const c = calc.lines[i]!;
       return { id: ctx.ids.next(), lineNo: i + 1, itemId: l.item_id, sourceLineId: null, name: l.name, hsnCode: l.hsn_code, qtyMilli: l.qty_milli, unit: l.unit, unitPrice: l.unit_price,
-        gross: c.gross, discount: c.discount, taxable: c.taxable, rateBp: c.rateBp, cgst: c.cgst, sgst: c.sgst, igst: c.igst, cess: c.cess, lineTotal: c.lineTotal, modifiersJson: l.modifiers_json, note: l.note };
+        gross: c.gross, discount: c.discount, taxable: c.taxable, rateBp: c.rateBp, cgst: c.cgst, sgst: c.sgst, igst: c.igst, cess: c.cess, lineTotal: c.lineTotal, modifiersJson: l.modifiers_json, note: l.note,
+        batchId: l.batch_id, mrp: l.mrp, uqc: l.uqc };
     });
     const precs: PaymentRecord[] = pays.map((p) => ({ id: ctx.ids.next(), mode: p.mode, amount: p.amount, tendered: p.tendered ?? null, reference: p.reference ?? null, shiftId: shift?.id ?? null, createdAt: now }));
     insertInvoice(ctx, rec, lrecs, precs);
     const stock = consumeForInvoice(ctx, invoiceId, lrecs, actor.userId, now); // recipes; never blocks the bill
+    afterSale(ctx, actor, invoiceId, fresh.customer_id, input.override); // retail stock and khata: an oversold batch stops the bill
+    journalTracked(ctx, h, 'invoice.finalize', track);
 
     run(ctx.db, "UPDATE sale_order SET status = 'INVOICED', shift_id = ?, updated_at = ? WHERE id = ?", shift?.id ?? null, now, order.id);
     const d: Deltas = { invoices: 1, sales_total: rec.grandTotal, tax_total: taxOf(rec), discount_total: rec.discountTotal };
@@ -130,6 +139,9 @@ export function cancelInvoice(ctx: Ctx, actor: Actor, requestId: string, input: 
     audit(ctx, actor.userId, 'invoice.cancel', 'invoice', iv.id, { reason, approver, invoiceNo: iv.invoiceNo });
     emit(ctx, 'invoice', iv.id, 'cancel', { id: iv.id, reason });
     const stock = reverseInvoiceConsumption(ctx, iv.id, approver, now);
+    const track = trackInserts(ctx);
+    afterCancel(ctx, actor, iv.id);
+    journalTracked(ctx, h, 'invoice.cancel', track);
     h.after(() => appendJournal(ctx, { v: 1, type: 'cancel', at: now, invoiceId: iv.id, reason, cancelledBy: approver, stock }));
     return { id: iv.id, status: 'CANCELLED' as const };
   });
@@ -235,7 +247,7 @@ export function checkPayments(ctx: Ctx, orderId: string, payments: PaymentInput[
   return { total, paid, remaining, changeDue, ok: message === null && remaining === 0, message };
 }
 
-interface AmountRow { id: string; qty_milli: number; gross: number; discount: number; taxable: number; cgst: number; sgst: number; igst: number; cess: number; line_total: number; name: string; item_id: string | null; hsn_code: string | null; unit: string; unit_price: number; rate_bp: number; modifiers_json: string; note: string | null; line_no: number }
+interface AmountRow { batch_id: string | null; mrp: number | null; uqc: string | null; id: string; qty_milli: number; gross: number; discount: number; taxable: number; cgst: number; sgst: number; igst: number; cess: number; line_total: number; name: string; item_id: string | null; hsn_code: string | null; unit: string; unit_price: number; rate_bp: number; modifiers_json: string; note: string | null; line_no: number }
 const AMOUNT_FIELDS = ['gross', 'discount', 'taxable', 'cgst', 'sgst', 'igst', 'cess'] as const;
 
 export function createCreditNote(ctx: Ctx, actor: Actor, requestId: string, input: { invoiceId: string; lines: Array<{ invoiceLineId: string; qtyMilli: number }>; reason: string; refunds: PaymentInput[]; override?: Override }) {
@@ -245,8 +257,8 @@ export function createCreditNote(ctx: Ctx, actor: Actor, requestId: string, inpu
     const reason = (input.reason ?? '').trim();
     if (!reason || reason.length > 200) throw new AppError('VALIDATION', 'A reason is required (max 200 characters).');
     if (!Array.isArray(input.lines) || input.lines.length === 0) throw new AppError('VALIDATION', 'Choose at least one line to return.');
-    const orig = get<{ id: string; order_id: string; device_id: string; doc_type: string; status: string; buyer_gstin: string | null; place_of_supply: string; round_off: number }>(
-      ctx.db, 'SELECT id, order_id, device_id, doc_type, status, buyer_gstin, place_of_supply, round_off FROM invoice WHERE id = ?', input.invoiceId);
+    const orig = get<{ id: string; order_id: string; device_id: string; doc_type: string; status: string; buyer_gstin: string | null; place_of_supply: string; round_off: number; customer_id: string | null; gst_scheme: 'regular' | 'composition' }>(
+      ctx.db, 'SELECT id, order_id, device_id, doc_type, status, buyer_gstin, place_of_supply, round_off, customer_id, gst_scheme FROM invoice WHERE id = ?', input.invoiceId);
     if (!orig) throw new AppError('NOT_FOUND', 'Invoice not found.', 404);
     if (orig.doc_type !== 'TAX_INVOICE' || orig.status !== 'ISSUED') throw new AppError('VALIDATION', 'Credit notes can only be raised against an issued tax invoice.');
     const settings = loadSettings(ctx);
@@ -255,7 +267,8 @@ export function createCreditNote(ctx: Ctx, actor: Actor, requestId: string, inpu
 
     const calc = computeCredit(ctx, orig, input.lines);
     const lrecs: LineRecord[] = calc.items.map((it, i) => ({ id: ctx.ids.next(), lineNo: i + 1, itemId: it.ol.item_id, sourceLineId: it.ol.id, name: it.ol.name, hsnCode: it.ol.hsn_code, qtyMilli: it.qtyMilli, unit: it.ol.unit, unitPrice: it.ol.unit_price,
-      gross: it.amt.gross, discount: it.amt.discount, taxable: it.amt.taxable, rateBp: it.ol.rate_bp, cgst: it.amt.cgst, sgst: it.amt.sgst, igst: it.amt.igst, cess: it.amt.cess, lineTotal: it.lineTotal, modifiersJson: it.ol.modifiers_json, note: it.ol.note }));
+      gross: it.amt.gross, discount: it.amt.discount, taxable: it.amt.taxable, rateBp: it.ol.rate_bp, cgst: it.amt.cgst, sgst: it.amt.sgst, igst: it.amt.igst, cess: it.amt.cess, lineTotal: it.lineTotal, modifiersJson: it.ol.modifiers_json, note: it.ol.note,
+      batchId: it.ol.batch_id, mrp: it.ol.mrp, uqc: it.ol.uqc }));
     const roundOff = calc.roundOff;
     const grand = calc.total;
     const refunds = validatePayments(input.refunds, grand);
@@ -269,9 +282,13 @@ export function createCreditNote(ctx: Ctx, actor: Actor, requestId: string, inpu
       grossTotal: sum(lrecs.map((l) => l.gross)), discountTotal: sum(lrecs.map((l) => l.discount)), taxableTotal: sum(lrecs.map((l) => l.taxable)),
       cgst: sum(lrecs.map((l) => l.cgst)), sgst: sum(lrecs.map((l) => l.sgst)), igst: sum(lrecs.map((l) => l.igst)), cess: sum(lrecs.map((l) => l.cess)),
       roundOff, grandTotal: grand, status: 'ISSUED', originalInvoiceId: orig.id, createdBy: actor.userId,
+      customerId: orig.customer_id, gstScheme: orig.gst_scheme,
     };
     const precs: PaymentRecord[] = refunds.map((p) => ({ id: ctx.ids.next(), mode: p.mode, amount: p.amount, tendered: null, reference: p.reference ?? null, shiftId: shift?.id ?? null, createdAt: now }));
     insertInvoice(ctx, rec, lrecs, precs);
+    const track = trackInserts(ctx);
+    afterCreditNote(ctx, actor, id, getSetting(ctx, 'returns_restock') !== 'no'); // returned goods back into their batch; refund to khata lowers the due
+    journalTracked(ctx, h, 'creditnote.create', track);
     const d: Deltas = { credit_notes: 1, refund_total: grand, tax_total: -taxOf(rec) };
     for (const p of precs) d[modeCol(p.mode)] = (d[modeCol(p.mode)] ?? 0) - p.amount;
     bumpSummary(ctx, istDay(now), orig.device_id, d);

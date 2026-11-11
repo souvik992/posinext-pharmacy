@@ -45,3 +45,36 @@ test('restore + journal replay brings back retail work done after the backup: GR
     } finally { ctx.db.close(); }
   } finally { env.cleanup(); }
 });
+
+test('a sale after the backup comes back whole on restore: the bill, its batch stock movement and the khata due', async () => {
+  const env = makeEnv();
+  try {
+    const { openShift } = await import('../src/services/shifts.ts');
+    const { createOrder, addLine } = await import('../src/services/orders.ts');
+    const { finalizeInvoice } = await import('../src/services/invoices.ts');
+    const { saveCustomer, setOrderCustomer, customerDue } = await import('../src/services/customers.ts');
+    openShift(env.ctx, env.cashier, rid(), { openingCash: 0 });
+    const tax = get<{ id: string }>(env.ctx.db, 'SELECT id FROM tax_group WHERE rate_bp = 500')!.id;
+    const ghee = createItem(env.ctx, env.manager, rid(), { name: 'Ghee 500ml', taxGroupId: tax, price: 30000, mrp: 32000, batchTracked: true }).id;
+    addOpeningStock(env.ctx, env.manager, rid(), [{ itemId: ghee, qtyMilli: 10000, batch: { batchNo: 'G1', expiryDate: '2027-06-30', mrp: 32000 } }]);
+    const cust = saveCustomer(env.ctx, env.manager, rid(), { mobile: '9876500001', name: 'Ravi' });
+    const b = await runBackup(env.ctx, 'manual');
+
+    const o = createOrder(env.ctx, env.cashier, rid()).order.id;
+    const c = addLine(env.ctx, env.cashier, rid(), { orderId: o, itemId: ghee, qtyMilli: 2000 });
+    setOrderCustomer(env.ctx, env.cashier, rid(), { orderId: o, customerId: cust.id });
+    finalizeInvoice(env.ctx, env.cashier, rid(), { orderId: o, payments: [{ mode: 'CREDIT', amount: c.totals.grandTotal }] });
+    const due = customerDue(env.ctx, cust.id);
+    assert.equal(due, 60000);
+
+    env.ctx.db.close();
+    performRestore(env.dir, b.file);
+    const ctx = createCtx({ dataDir: env.dir, logger: silentLogger, scryptCost: 1024 });
+    try {
+      assert.equal(onHand(ctx, ghee), 8000, 'the batch stock sold is out again');
+      assert.equal(customerDue(ctx, cust.id), 60000, 'the khata due is back');
+      assert.equal(get<{ batch_id: string | null }>(ctx.db, 'SELECT batch_id FROM invoice_line WHERE item_id = ?', ghee)!.batch_id !== null, true, 'the bill line keeps its batch');
+      assert.deepEqual(checkStockIntegrity(ctx), []);
+    } finally { ctx.db.close(); }
+  } finally { env.cleanup(); }
+});

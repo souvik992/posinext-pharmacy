@@ -6,7 +6,9 @@ import { audit } from './audit.ts';
 import { assertPerm, can } from './permissions.ts';
 import { requireApproval } from './auth.ts';
 import type { Override } from './auth.ts';
-import { loadSettings } from './settings.ts';
+import { getSetting, loadSettings } from './settings.ts';
+import { lookupScan, pickBatch } from './products.ts';
+import { inclusiveUnitPrice } from './catalog.ts';
 import type { Settings } from './settings.ts';
 import { computeInvoice, MAX_QTY_MILLI } from '../core/tax.ts';
 import type { InvoiceComputation, TaxableLineInput } from '../core/tax.ts';
@@ -22,13 +24,18 @@ export interface OrderRow {
   status: 'DRAFT' | 'HELD' | 'INVOICED' | 'CANCELLED'; customer_phone: string | null; customer_name: string | null; note: string | null;
   place_of_supply: string | null; buyer_gstin: string | null; bill_discount_type: 'amount' | 'percent' | null; bill_discount_value: number | null;
   discount_approved_by: string | null; discount_approved_bp: number | null; created_by: string | null; created_at: number; updated_at: number;
-  coupon_id: string | null; coupon_code: string | null;
+  coupon_id: string | null; coupon_code: string | null; customer_id: string | null;
 }
 export interface CartLineRow {
   id: string; order_id: string; item_id: string; qty_milli: number; unit_price: number; disc_type: 'amount' | 'percent' | null; disc_value: number | null;
   modifiers_json: string; note: string | null; sort_no: number; name: string; hsn_code: string | null; unit: string;
   rate_bp: number; cess_bp: number; price_includes_tax: number;
+  /** retail (V18) */
+  batch_id: string | null; mrp: number | null; uqc: string; batch_no: string | null; expiry_date: string | null;
 }
+
+/** A composition dealer charges no GST on its bills (Bill of Supply). Settings > Store > GST scheme. */
+export const isComposition = (ctx: Ctx) => getSetting(ctx, 'gst_scheme') === 'composition';
 
 export const CHANNELS = ['COUNTER', 'APP', 'WEBSITE', 'SWIGGY', 'ZOMATO', 'ONDC', 'OTHER'];
 const GSTIN_RE = /^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
@@ -43,8 +50,8 @@ function assertOpen(o: OrderRow): void {
 }
 export function loadCartLines(ctx: Ctx, orderId: string): CartLineRow[] {
   return all<CartLineRow>(ctx.db,
-    `SELECT l.*, i.name, i.hsn_code, i.unit, t.rate_bp, t.cess_bp, t.price_includes_tax
-       FROM sale_order_line l JOIN item i ON i.id = l.item_id JOIN tax_group t ON t.id = i.tax_group_id
+    `SELECT l.*, i.name, i.hsn_code, i.unit, i.uqc, t.rate_bp, t.cess_bp, t.price_includes_tax, b.batch_no, b.expiry_date
+       FROM sale_order_line l JOIN item i ON i.id = l.item_id JOIN tax_group t ON t.id = i.tax_group_id LEFT JOIN batch b ON b.id = l.batch_id
       WHERE l.order_id = ? ORDER BY l.sort_no`, orderId);
 }
 export function outletState(ctx: Ctx): string {
@@ -57,10 +64,12 @@ export interface CouponState { code: string; description: string | null; problem
 export function computeFor(ctx: Ctx, order: OrderRow, lines: CartLineRow[], settings: Settings): { calc: InvoiceComputation; placeOfSupply: string; coupon: CouponState | null } {
   const home = outletState(ctx);
   const pos = order.place_of_supply ?? home;
+  const composition = isComposition(ctx);
   const inputs: TaxableLineInput[] = lines.map((l) => ({
     id: l.id, qtyMilli: l.qty_milli, unitPrice: l.unit_price,
     discount: l.disc_type && l.disc_value !== null ? { type: l.disc_type, value: l.disc_value } : null,
-    rateBp: l.rate_bp, cessBp: l.cess_bp, priceIncludesTax: l.price_includes_tax === 1,
+    // a composition dealer collects no tax: the price is the amount (it must not add tax on top either)
+    rateBp: composition ? 0 : l.rate_bp, cessBp: composition ? 0 : l.cess_bp, priceIncludesTax: composition ? true : l.price_includes_tax === 1,
   }));
   const opts = { intraState: pos === home, roundToRupee: settings.roundToRupee };
   try {
@@ -103,6 +112,7 @@ export function getCart(ctx: Ctx, orderId: string) {
     order: {
       id: order.id, status: order.status, channel: order.channel, tokenNo: order.token_no, customerPhone: order.customer_phone, customerName: order.customer_name, note: order.note,
       placeOfSupply, buyerGstin: order.buyer_gstin, shiftId: order.shift_id, createdAt: order.created_at, updatedAt: order.updated_at,
+      customerId: order.customer_id, gstScheme: isComposition(ctx) ? 'composition' : 'regular',
       billDiscount: order.bill_discount_type ? { type: order.bill_discount_type, value: order.bill_discount_value } : null,
       discountApproved: order.discount_approved_by !== null,
       coupon,
@@ -110,7 +120,8 @@ export function getCart(ctx: Ctx, orderId: string) {
     lines: lines.map((l) => {
       const c = byId.get(l.id)!;
       return {
-        id: l.id, itemId: l.item_id, name: l.name, unit: l.unit, qtyMilli: l.qty_milli, unitPrice: l.unit_price,
+        id: l.id, itemId: l.item_id, name: l.name, unit: l.unit, uqc: l.uqc, qtyMilli: l.qty_milli, unitPrice: l.unit_price,
+        batch: l.batch_id ? { id: l.batch_id, batchNo: l.batch_no, expiryDate: l.expiry_date } : null, mrp: l.mrp,
         discount: l.disc_type ? { type: l.disc_type, value: l.disc_value } : null,
         modifiers: JSON.parse(l.modifiers_json) as Array<{ id: string; name: string; price: number }>, note: l.note,
         gross: c.gross, discountApplied: c.discount, taxable: c.taxable, rateBp: c.rateBp, cgst: c.cgst, sgst: c.sgst, igst: c.igst, cess: c.cess, lineTotal: c.lineTotal,
@@ -196,7 +207,37 @@ export function createOrder(ctx: Ctx, actor: Actor, requestId: string, input: { 
   });
 }
 
-export interface AddLineInput { orderId: string; itemId: string; qtyMilli?: number; modifierIds?: string[]; note?: string | null; /** Online orders only (onlineBilling): the sales channel's item price instead of the menu price. HTTP refuses this field. */ channelPrice?: number; /** Online orders only: the customer ordered before the item was marked "not available today". HTTP refuses this field. */ allowUnavailable?: boolean }
+/**
+ * The price, MRP and batch for one sale line. Batch items: the batch given (it must be in stock and not expired), or
+ * the one pickBatch chooses; when batches in stock have different MRPs the cashier must choose (CHOOSE_BATCH lists
+ * them), since the customer pays the MRP printed on the pack in hand. An old batch with a lower MRP sells at that MRP
+ * at most (never above MRP, Legal Metrology rule 18(2)).
+ */
+export function retailPrice(ctx: Ctx, item: { id: string; name: string; price: number; batch_tracked: number; mrp: number | null; rate_bp: number; cess_bp: number; price_includes_tax: number }, batchId: string | null, qtyMilli: number): { price: number; mrp: number | null; batchId: string | null } {
+  let mrp = item.mrp, price = item.price, chosen: string | null = null;
+  if (item.batch_tracked === 1) {
+    if (batchId) {
+      const b = get<{ id: string; mrp: number | null; sale_price: number | null; expiry_date: string | null; batch_no: string }>(ctx.db, 'SELECT id, mrp, sale_price, expiry_date, batch_no FROM batch WHERE id = ? AND item_id = ?', batchId, item.id);
+      if (!b) throw new AppError('VALIDATION', `That batch is not a batch of ${item.name}.`);
+      if (b.expiry_date && b.expiry_date < istDay(ctx.clock.now())) throw new AppError('BATCH_EXPIRED', `Batch ${b.batch_no} of ${item.name} expired on ${b.expiry_date}. Expired stock cannot be sold.`, 409);
+      chosen = b.id; mrp = b.mrp ?? mrp; price = b.sale_price ?? price;
+    } else {
+      const p = pickBatch(ctx, item.id, qtyMilli);
+      if ('choose' in p) throw new AppError('CHOOSE_BATCH', `${item.name} is in stock at more than one MRP. Choose the batch (MRP on the pack).`, 409, { itemId: item.id, batches: p.choose });
+      if ('none' in p) throw new AppError('NO_STOCK', p.expired.length ? `All stock of ${item.name} has expired.` : `${item.name} is out of stock (no batch in stock).`, 409, { itemId: item.id, expired: p.expired });
+      const b = get<{ mrp: number | null; sale_price: number | null }>(ctx.db, 'SELECT mrp, sale_price FROM batch WHERE id = ?', p.batchId)!;
+      chosen = p.batchId; mrp = b.mrp ?? mrp; price = b.sale_price ?? price;
+    }
+  }
+  if (mrp !== null && inclusiveUnitPrice(price, item.rate_bp, item.cess_bp, item.price_includes_tax === 1) > mrp) {
+    // the item's price today is above this batch's (older, lower) MRP: sell at the MRP
+    price = item.price_includes_tax === 1 ? mrp : mulDivRound(mrp, 10000, 10000 + item.rate_bp + item.cess_bp);
+    while (price > 0 && inclusiveUnitPrice(price, item.rate_bp, item.cess_bp, item.price_includes_tax === 1) > mrp) price--;
+  }
+  return { price, mrp, batchId: chosen };
+}
+
+export interface AddLineInput { orderId: string; itemId: string; qtyMilli?: number; modifierIds?: string[]; note?: string | null; /** Retail: the batch (MRP on the pack in hand); picked automatically when unambiguous. */ batchId?: string | null; /** Online orders only (onlineBilling): the sales channel's item price instead of the menu price. HTTP refuses this field. */ channelPrice?: number; /** Online orders only: the customer ordered before the item was marked "not available today". HTTP refuses this field. */ allowUnavailable?: boolean }
 
 export function addLine(ctx: Ctx, actor: Actor, requestId: string, input: AddLineInput) {
   return cartCmd(ctx, requestId, 'order.add_line', actor, () => {
@@ -205,8 +246,11 @@ export function addLine(ctx: Ctx, actor: Actor, requestId: string, input: AddLin
     assertOpen(order);
     const qty = input.qtyMilli ?? 1000;
     if (!Number.isSafeInteger(qty) || qty < 1 || qty > MAX_QTY_MILLI) throw new AppError('VALIDATION', 'Quantity is out of range.');
-    const item = get<{ id: string; name: string; price: number; unavailable_on: string | null }>(ctx.db, 'SELECT id, name, price, unavailable_on FROM item WHERE id = ? AND deleted_at IS NULL AND active = 1', input.itemId);
+    const item = get<{ id: string; name: string; price: number; unavailable_on: string | null; batch_tracked: number; mrp: number | null; rate_bp: number; cess_bp: number; price_includes_tax: number }>(ctx.db,
+      `SELECT i.id, i.name, i.price, i.unavailable_on, i.batch_tracked, i.mrp, t.rate_bp, t.cess_bp, t.price_includes_tax
+         FROM item i JOIN tax_group t ON t.id = i.tax_group_id WHERE i.id = ? AND i.deleted_at IS NULL AND i.active = 1`, input.itemId);
     if (!item) throw new AppError('NOT_FOUND', 'Item not found or not available.', 404);
+    const sale = retailPrice(ctx, item, input.batchId ?? null, qty);
     if (!input.allowUnavailable && item.unavailable_on === istDay(ctx.clock.now())) throw new AppError('ITEM_UNAVAILABLE', `${item.name} is marked "not available today". Mark it available again to sell it.`, 409);
     const note = input.note?.trim() ? input.note.trim().slice(0, 120) : null;
 
@@ -228,19 +272,22 @@ export function addLine(ctx: Ctx, actor: Actor, requestId: string, input: AddLin
     picked.sort((a, b) => (a.id < b.id ? -1 : 1));
     const modsJson = JSON.stringify(picked.map((m) => ({ id: m.id, name: m.name, price: m.price })));
     if (input.channelPrice !== undefined && (!Number.isSafeInteger(input.channelPrice) || input.channelPrice < 0 || input.channelPrice > 100_000_000)) throw new AppError('VALIDATION', 'The channel price is not valid.');
-    const unitPrice = (input.channelPrice ?? item.price) + picked.reduce((s, m) => s + m.price, 0);
+    const unitPrice = (input.channelPrice ?? sale.price) + picked.reduce((s, m) => s + m.price, 0);
+    if (sale.mrp !== null && inclusiveUnitPrice(unitPrice, item.rate_bp, item.cess_bp, item.price_includes_tax === 1) > sale.mrp) {
+      throw new AppError('ABOVE_MRP', `${item.name} would sell above its MRP of Rs ${(sale.mrp / 100).toFixed(2)}.`, 422);
+    }
 
     const existing = get<{ id: string; qty_milli: number }>(ctx.db,
       `SELECT id, qty_milli FROM sale_order_line WHERE order_id = ? AND item_id = ? AND modifiers_json = ? AND ifnull(note,'') = ifnull(?, '')
-          AND disc_type IS NULL AND unit_price = ?`, order.id, item.id, modsJson, note, unitPrice);
+          AND disc_type IS NULL AND unit_price = ? AND ifnull(batch_id, '') = ?`, order.id, item.id, modsJson, note, unitPrice, sale.batchId ?? '');
     if (existing) {
       if (existing.qty_milli + qty > MAX_QTY_MILLI) throw new AppError('VALIDATION', 'Quantity is out of range.');
       run(ctx.db, 'UPDATE sale_order_line SET qty_milli = qty_milli + ? WHERE id = ?', qty, existing.id);
     } else {
       const count = get<{ n: number; m: number | null }>(ctx.db, 'SELECT count(*) n, max(sort_no) m FROM sale_order_line WHERE order_id = ?', order.id)!;
       if (count.n >= loadSettings(ctx).maxLines) throw new AppError('CART_FULL', `A bill can have at most ${loadSettings(ctx).maxLines} lines.`, 422);
-      run(ctx.db, 'INSERT INTO sale_order_line(id, order_id, item_id, qty_milli, unit_price, modifiers_json, note, sort_no) VALUES (?,?,?,?,?,?,?,?)',
-        ctx.ids.next(), order.id, item.id, qty, unitPrice, modsJson, note, (count.m ?? 0) + 1);
+      run(ctx.db, 'INSERT INTO sale_order_line(id, order_id, item_id, qty_milli, unit_price, modifiers_json, note, sort_no, batch_id, mrp) VALUES (?,?,?,?,?,?,?,?,?,?)',
+        ctx.ids.next(), order.id, item.id, qty, unitPrice, modsJson, note, (count.m ?? 0) + 1, sale.batchId, sale.mrp);
     }
     touch(ctx, order.id);
     enforceDiscountPolicy(ctx, actor, order.id);
@@ -422,4 +469,19 @@ export function listOpenOrders(ctx: Ctx, o: { status?: 'DRAFT' | 'HELD' } = {}):
     customerPhone: r.customer_phone, customerName: r.customer_name, note: r.note, createdByName: r.created_by_name,
     grandTotal: r.line_count === 0 ? 0 : getCart(ctx, r.id).totals.grandTotal,
   }));
+}
+
+/**
+ * The counter's scan (or a code typed into the scan box): a barcode, a case barcode (pack quantity), a weighing-scale
+ * label, an SKU or a PLU, times an optional multiplier ("3*" then scan). Unknown codes return found:false with the
+ * reason, so the counter can beep and show it without an error dialog.
+ */
+export function addScan(ctx: Ctx, actor: Actor, requestId: string, input: { orderId: string; code: string; multiplier?: number; batchId?: string | null }) {
+  const hit = lookupScan(ctx, input.code);
+  if (!hit.found) return { found: false as const, code: hit.code, reason: hit.reason, cart: getCart(ctx, input.orderId) };
+  const mult = input.multiplier ?? 1;
+  if (!Number.isInteger(mult) || mult < 1 || mult > 999) throw new AppError('VALIDATION', 'The quantity multiplier must be 1 to 999.');
+  if (hit.scale && mult !== 1) throw new AppError('VALIDATION', 'A weighing-scale label already carries its quantity; scan it without a multiplier.');
+  const cart = addLine(ctx, actor, requestId, { orderId: input.orderId, itemId: hit.itemId, qtyMilli: hit.qtyMilli * mult, batchId: input.batchId ?? null });
+  return { found: true as const, itemId: hit.itemId, name: hit.name, qtyMilli: hit.qtyMilli * mult, source: hit.source, cart };
 }

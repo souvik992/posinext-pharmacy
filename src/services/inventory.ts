@@ -125,3 +125,78 @@ export function checkStockIntegrity(ctx: Ctx): string[] {
             (SELECT sum(delta_milli) FROM item_stock_move m WHERE m.item_id = s.item_id AND ifnull(m.batch_id, '') = s.batch_key) AS ledger
        FROM item_stock s`).filter((r) => (r.ledger ?? 0) !== r.qty_milli).map((r) => `${r.item_id}/${r.batch_key || '-'}: on hand ${r.qty_milli}, ledger ${r.ledger ?? 0}`);
 }
+
+// ---------------------------------------------------------------- stock take
+
+/** A stock take: count shelves (by scanner or by hand), check the differences, then post them as COUNT moves. */
+export function startCount(ctx: Ctx, actor: Actor, requestId: string, input: { name: string }) {
+  return retailCommand(ctx, requestId, 'count.start', actor, () => {
+    assertPerm(actor, 'stock.write');
+    const name = typeof input.name === 'string' && input.name.trim() ? input.name.trim().slice(0, 60) : fail('Name the count, e.g. "Aisle 3" or "Full count March".');
+    const id = ctx.ids.next();
+    run(ctx.db, "INSERT INTO stock_count (id, name, status, created_by, created_at) VALUES (?,?, 'OPEN', ?,?)", id, name, actor.userId, ctx.clock.now());
+    return { id, name };
+  });
+}
+
+const openCount = (ctx: Ctx, id: string) => {
+  const c = get<{ status: string }>(ctx.db, 'SELECT status FROM stock_count WHERE id = ?', id);
+  if (!c) throw new AppError('NOT_FOUND', 'Stock count not found.', 404);
+  if (c.status !== 'OPEN') throw new AppError('COUNT_CLOSED', 'This count is already posted or cancelled.', 409);
+};
+
+/** One counted item (and batch): mode "add" for scanning one by one, "set" for a counted total. */
+export function recordCount(ctx: Ctx, actor: Actor, requestId: string, input: { countId: string; itemId: string; batchId?: string | null; qtyMilli: number; mode?: 'add' | 'set' }) {
+  return runCommand(ctx, requestId, 'count.record', actor, () => {
+    assertPerm(actor, 'stock.write');
+    openCount(ctx, input.countId);
+    const it = itemFacts(ctx, input.itemId);
+    if (!it) throw new AppError('NOT_FOUND', 'Item not found.', 404);
+    if (it.batch_tracked === 1 && !input.batchId) fail(`${it.name} is tracked by batch: count each batch.`);
+    if (it.batch_tracked !== 1 && input.batchId) fail(`${it.name} is not tracked by batch.`);
+    if (!Number.isInteger(input.qtyMilli) || input.qtyMilli < 0 || (input.mode !== 'set' && input.qtyMilli === 0)) fail('Counted quantity must be a whole number of thousandths (more than zero when adding).');
+    const key = input.batchId ?? '';
+    const cur = get<{ counted_milli: number }>(ctx.db, 'SELECT counted_milli FROM stock_count_line WHERE count_id = ? AND item_id = ? AND batch_key = ?', input.countId, input.itemId, key);
+    const counted = input.mode === 'set' ? input.qtyMilli : (cur?.counted_milli ?? 0) + input.qtyMilli;
+    run(ctx.db, `INSERT INTO stock_count_line (id, count_id, item_id, batch_key, counted_milli, updated_at) VALUES (?,?,?,?,?,?)
+                 ON CONFLICT(count_id, item_id, batch_key) DO UPDATE SET counted_milli = excluded.counted_milli, updated_at = excluded.updated_at`,
+      ctx.ids.next(), input.countId, input.itemId, key, counted, ctx.clock.now());
+    return { itemId: input.itemId, batchId: input.batchId ?? null, countedMilli: counted };
+  });
+}
+
+/** Counted against what the system holds now, line by line (the variance that posting will apply). */
+export function countView(ctx: Ctx, countId: string) {
+  const c = get<{ id: string; name: string; status: string; created_at: number; posted_at: number | null }>(ctx.db, 'SELECT id, name, status, created_at, posted_at FROM stock_count WHERE id = ?', countId);
+  if (!c) throw new AppError('NOT_FOUND', 'Stock count not found.', 404);
+  const lines = all<{ item_id: string; name: string; batch_key: string; batch_no: string | null; counted_milli: number; system_milli: number | null; on_hand: number | null }>(ctx.db,
+    `SELECT l.item_id, i.name, l.batch_key, b.batch_no, l.counted_milli, l.system_milli,
+            (SELECT qty_milli FROM item_stock s WHERE s.item_id = l.item_id AND s.batch_key = l.batch_key) AS on_hand
+       FROM stock_count_line l JOIN item i ON i.id = l.item_id LEFT JOIN batch b ON b.id = nullif(l.batch_key, '')
+      WHERE l.count_id = ? ORDER BY i.name COLLATE NOCASE, b.batch_no`, countId)
+    .map((r) => {
+      const system = c.status === 'POSTED' ? (r.system_milli ?? 0) : (r.on_hand ?? 0);
+      return { itemId: r.item_id, name: r.name, batchId: r.batch_key || null, batchNo: r.batch_no, countedMilli: r.counted_milli, systemMilli: system, varianceMilli: r.counted_milli - system };
+    });
+  return { id: c.id, name: c.name, status: c.status, createdAt: c.created_at, postedAt: c.posted_at, lines };
+}
+
+/** Posts the count: each line's difference becomes a COUNT move, so stock on hand equals what was counted. */
+export function postCount(ctx: Ctx, actor: Actor, requestId: string, countId: string) {
+  return retailCommand(ctx, requestId, 'count.post', actor, (h) => {
+    assertPerm(actor, 'stock.write');
+    openCount(ctx, countId);
+    let changed = 0;
+    for (const l of countView(ctx, countId).lines) {
+      run(ctx.db, 'UPDATE stock_count_line SET system_milli = ? WHERE count_id = ? AND item_id = ? AND batch_key = ?', l.systemMilli, countId, l.itemId, l.batchId ?? '');
+      if (l.varianceMilli === 0) continue;
+      postMove(ctx, actor, { itemId: l.itemId, batchId: l.batchId, deltaMilli: l.varianceMilli, kind: 'COUNT', refType: 'stock_count', refId: countId, reason: 'Stock take' });
+      changed++;
+    }
+    const now = ctx.clock.now();
+    run(ctx.db, "UPDATE stock_count SET status = 'POSTED', posted_at = ?, posted_by = ? WHERE id = ?", now, actor.userId, countId);
+    h.update('stock_count', countId, { status: 'POSTED', posted_at: now, posted_by: actor.userId });
+    audit(ctx, actor.userId, 'count.post', 'stock_count', countId, { changed });
+    return { id: countId, changed };
+  });
+}

@@ -8,25 +8,30 @@ export interface InvoiceRecord {
   invoiceNo: string; issuedAt: number; buyerGstin: string | null; placeOfSupply: string; tokenNo: number | null;
   grossTotal: number; discountTotal: number; taxableTotal: number; cgst: number; sgst: number; igst: number; cess: number; roundOff: number; grandTotal: number;
   status: 'ISSUED' | 'CANCELLED'; originalInvoiceId: string | null; createdBy: string;
+  /** Retail (V18): the customer (khata, B2B) and the GST scheme (composition = Bill of Supply). */
+  customerId?: string | null; gstScheme?: 'regular' | 'composition';
 }
 export interface LineRecord {
   id: string; lineNo: number; itemId: string | null; sourceLineId: string | null; name: string; hsnCode: string | null; qtyMilli: number; unit: string; unitPrice: number;
   gross: number; discount: number; taxable: number; rateBp: number; cgst: number; sgst: number; igst: number; cess: number; lineTotal: number; modifiersJson: string; note: string | null;
+  /** Retail (V18): the batch sold, its MRP and the GST unit. */
+  batchId?: string | null; mrp?: number | null; uqc?: string | null;
 }
 export interface PaymentRecord { id: string; mode: string; amount: number; tendered: number | null; reference: string | null; shiftId: string | null; createdAt: number }
 
 export function insertInvoice(ctx: Ctx, v: InvoiceRecord, lines: LineRecord[], payments: PaymentRecord[]): void {
   run(ctx.db, `INSERT INTO invoice(id, order_id, device_id, shift_id, doc_type, series_id, seq_no, invoice_no, issued_at, buyer_gstin, place_of_supply, token_no,
-      gross_total, discount_total, taxable_total, cgst, sgst, igst, cess, round_off, grand_total, status, original_invoice_id, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      gross_total, discount_total, taxable_total, cgst, sgst, igst, cess, round_off, grand_total, status, original_invoice_id, created_by, customer_id, gst_scheme)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     v.id, v.orderId, v.deviceId, v.shiftId, v.docType, v.seriesId, v.seqNo, v.invoiceNo, v.issuedAt, v.buyerGstin, v.placeOfSupply, v.tokenNo,
-    v.grossTotal, v.discountTotal, v.taxableTotal, v.cgst, v.sgst, v.igst, v.cess, v.roundOff, v.grandTotal, v.status, v.originalInvoiceId, v.createdBy);
+    v.grossTotal, v.discountTotal, v.taxableTotal, v.cgst, v.sgst, v.igst, v.cess, v.roundOff, v.grandTotal, v.status, v.originalInvoiceId, v.createdBy,
+    v.customerId ?? null, v.gstScheme ?? 'regular');
   ctx.hooks.fault?.('invoice.after_row');
   for (const l of lines) {
     run(ctx.db, `INSERT INTO invoice_line(id, invoice_id, line_no, item_id, source_line_id, name, hsn_code, qty_milli, unit, unit_price, gross, discount, taxable, rate_bp,
-        cgst, sgst, igst, cess, line_total, modifiers_json, note) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        cgst, sgst, igst, cess, line_total, modifiers_json, note, batch_id, mrp, uqc) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       l.id, v.id, l.lineNo, l.itemId, l.sourceLineId, l.name, l.hsnCode, l.qtyMilli, l.unit, l.unitPrice, l.gross, l.discount, l.taxable, l.rateBp,
-      l.cgst, l.sgst, l.igst, l.cess, l.lineTotal, l.modifiersJson, l.note);
+      l.cgst, l.sgst, l.igst, l.cess, l.lineTotal, l.modifiersJson, l.note, l.batchId ?? null, l.mrp ?? null, l.uqc ?? null);
   }
   ctx.hooks.fault?.('invoice.after_lines');
   for (const p of payments) {

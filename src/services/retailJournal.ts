@@ -65,6 +65,14 @@ export function retailCommand<T>(ctx: Ctx, requestId: string, name: string, acto
   }, opts);
 }
 
+/** For commands that keep their own journal entry (bills): also journal the retail rows they inserted (stock, khata). */
+export function journalTracked(ctx: Ctx, h: Helpers, op: string, track: ReturnType<typeof trackInserts>): void {
+  const rows = track.collect();
+  if (!rows.length) return;
+  const entry: RowsEntry = { v: 1, type: 'rows', at: ctx.clock.now(), op, rows };
+  h.after(() => appendJournal(ctx, entry));
+}
+
 /** Replays one rows entry: inserts what is missing (by primary key), applies updates, moves counters forward. */
 export function applyRowsEntry(ctx: Ctx, e: RowsEntry): boolean {
   const have = existing(ctx);
