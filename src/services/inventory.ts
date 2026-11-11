@@ -3,6 +3,7 @@
 import { all, get, run, AppError } from '../store/db.ts';
 import type { Actor, Ctx } from './ctx.ts';
 import { runCommand } from './commands.ts';
+import { retailCommand } from './retailJournal.ts';
 import { audit } from './audit.ts';
 import { assertPerm } from './permissions.ts';
 import { getSetting, setSetting } from './settings.ts';
@@ -64,7 +65,7 @@ export interface StockLineInput { itemId: string; qtyMilli: number; unitCost?: n
 
 /** Opening stock when the shop starts with Retail POS (or a newly added item): batches are created as given. */
 export function addOpeningStock(ctx: Ctx, actor: Actor, requestId: string, lines: StockLineInput[]) {
-  return runCommand(ctx, requestId, 'stock.opening', actor, () => {
+  return retailCommand(ctx, requestId, 'stock.opening', actor, () => {
     assertPerm(actor, 'stock.write');
     if (!Array.isArray(lines) || lines.length === 0 || lines.length > 5000) fail('Give 1 to 5000 lines of opening stock.');
     const ref = ctx.ids.next();
@@ -82,7 +83,7 @@ export function addOpeningStock(ctx: Ctx, actor: Actor, requestId: string, lines
 
 /** A manual change with its reason (damaged, expired, lost, ...): negative removes stock, positive adds it. */
 export function adjustStock(ctx: Ctx, actor: Actor, requestId: string, input: { itemId: string; batchId?: string | null; deltaMilli: number; reason: AdjustReason; note?: string | null }) {
-  return runCommand(ctx, requestId, 'stock.adjust', actor, () => {
+  return retailCommand(ctx, requestId, 'stock.adjust', actor, () => {
     assertPerm(actor, 'stock.write');
     if (!(input.reason in ADJUST_REASONS)) fail(`Reason must be one of ${Object.keys(ADJUST_REASONS).join(', ')}.`);
     if (input.reason === 'FOUND' && input.deltaMilli < 0) fail('"Found extra" adds stock.');

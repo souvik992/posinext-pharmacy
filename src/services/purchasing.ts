@@ -5,6 +5,7 @@ import { all, get, run, AppError } from '../store/db.ts';
 import type { Actor, Ctx } from './ctx.ts';
 import { getDevice } from './ctx.ts';
 import { runCommand } from './commands.ts';
+import { retailCommand } from './retailJournal.ts';
 import { audit } from './audit.ts';
 import { assertPerm } from './permissions.ts';
 import { gstinProblem } from '../core/gstin.ts';
@@ -52,7 +53,7 @@ function checkSupplier(ctx: Ctx, s: SupplierInput, selfId: string | null) {
 }
 
 export function createSupplier(ctx: Ctx, actor: Actor, requestId: string, input: SupplierInput & { openingBalance?: number }) {
-  return runCommand(ctx, requestId, 'supplier.create', actor, () => {
+  return retailCommand(ctx, requestId, 'supplier.create', actor, () => {
     assertPerm(actor, 'stock.write');
     const s = checkSupplier(ctx, input, null);
     const id = ctx.ids.next(), now = ctx.clock.now();
@@ -100,7 +101,7 @@ export function supplierStatement(ctx: Ctx, supplierId: string) {
 
 /** Money paid to a supplier (cash, UPI, bank, cheque): lowers what the shop owes. */
 export function paySupplier(ctx: Ctx, actor: Actor, requestId: string, input: { supplierId: string; amount: number; mode: string; reference?: string | null }) {
-  return runCommand(ctx, requestId, 'supplier.pay', actor, () => {
+  return retailCommand(ctx, requestId, 'supplier.pay', actor, () => {
     assertPerm(actor, 'stock.write');
     if (!get(ctx.db, 'SELECT 1 FROM supplier WHERE id = ?', input.supplierId)) throw new AppError('NOT_FOUND', 'Supplier not found.', 404);
     if (!Number.isInteger(input.amount) || input.amount <= 0) fail('Amount must be more than zero.');
@@ -134,7 +135,7 @@ export interface GrnLineInput {
 export interface GrnInput { supplierId: string; billNo?: string | null; billDate?: string | null; lines: GrnLineInput[]; otherCharges?: number; note?: string | null; roundToRupee?: boolean }
 
 export function postGrn(ctx: Ctx, actor: Actor, requestId: string, input: GrnInput) {
-  return runCommand(ctx, requestId, 'grn.post', actor, () => {
+  return retailCommand(ctx, requestId, 'grn.post', actor, () => {
     assertPerm(actor, 'stock.write');
     const sup = get<{ id: string; state_code: string | null }>(ctx.db, 'SELECT id, state_code FROM supplier WHERE id = ? AND deleted_at IS NULL', input.supplierId);
     if (!sup) throw new AppError('NOT_FOUND', 'Supplier not found.', 404);
@@ -197,7 +198,7 @@ export function postGrn(ctx: Ctx, actor: Actor, requestId: string, input: GrnInp
 
 /** Undoes a receipt entered wrongly: its stock comes out again (it must still be there) and the supplier is owed less. */
 export function voidGrn(ctx: Ctx, actor: Actor, requestId: string, id: string, reason: string) {
-  return runCommand(ctx, requestId, 'grn.void', actor, () => {
+  return retailCommand(ctx, requestId, 'grn.void', actor, (h) => {
     assertPerm(actor, 'stock.write');
     const g = get<{ id: string; grn_no: string; supplier_id: string; total: number; status: string }>(ctx.db, 'SELECT id, grn_no, supplier_id, total, status FROM grn WHERE id = ?', id);
     if (!g) throw new AppError('NOT_FOUND', 'Goods receipt not found.', 404);
@@ -207,6 +208,7 @@ export function voidGrn(ctx: Ctx, actor: Actor, requestId: string, id: string, r
       postMove(ctx, actor, { itemId: l.item_id, batchId: l.batch_id, deltaMilli: -(l.qty_milli + l.free_qty_milli), kind: 'PURCHASE_VOID', refType: 'grn', refId: id, reason: why });
     }
     run(ctx.db, "UPDATE grn SET status = 'VOIDED', voided_at = ?, voided_by = ?, void_reason = ? WHERE id = ?", ctx.clock.now(), actor.userId, why, id);
+    h.update('grn', id, { status: 'VOIDED', voided_at: ctx.clock.now(), voided_by: actor.userId, void_reason: why });
     ledger(ctx, actor, g.supplier_id, 'BILL_VOID', -g.total, id, `${g.grn_no} voided: ${why}`);
     audit(ctx, actor.userId, 'grn.void', 'grn', id, { reason: why });
     return { id, voided: true };
@@ -232,7 +234,7 @@ export interface PurchaseReturnInput { supplierId: string; grnId?: string | null
 
 /** Goods sent back to the supplier (expired, damaged, wrong): a debit note; stock goes out, the shop owes less. */
 export function postPurchaseReturn(ctx: Ctx, actor: Actor, requestId: string, input: PurchaseReturnInput) {
-  return runCommand(ctx, requestId, 'purchase.return', actor, () => {
+  return retailCommand(ctx, requestId, 'purchase.return', actor, () => {
     assertPerm(actor, 'stock.write');
     const sup = get<{ id: string; state_code: string | null }>(ctx.db, 'SELECT id, state_code FROM supplier WHERE id = ?', input.supplierId);
     if (!sup) throw new AppError('NOT_FOUND', 'Supplier not found.', 404);

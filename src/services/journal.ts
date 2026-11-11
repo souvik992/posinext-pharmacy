@@ -12,6 +12,7 @@ import { emit } from './outbox.ts';
 import { recomputeDailySummary } from './reports.ts';
 import { applyStockEntry, insertMissingMovements, movementsForRef, recomputeStockBalances } from './stock.ts';
 import type { MovementRecord, PurchaseLineRecord, PurchaseRecord, StockItemSnapshot } from './stock.ts';
+import { applyRowsEntry, recomputeItemStock, type RowsEntry } from './retailJournal.ts';
 
 /**
  * Daily bill journal: one readable JSON line per event, fsynced, stored OUTSIDE the database.
@@ -23,7 +24,9 @@ export type JournalEntry =
   | { v: 1; type: 'shift_open'; at: number; shift: { id: string; deviceId: string; userId: string; openedAt: number; openingCash: number } }
   | { v: 1; type: 'shift_close'; at: number; shiftId: string; closedBy: string; expectedCash: number; countedCash: number }
   | { v: 1; type: 'payment_correction'; at: number; correction: PaymentCorrectionRecord; deviceId: string; issuedAt: number }
-  | { v: 1; type: 'stock'; at: number; items: StockItemSnapshot[]; movements: MovementRecord[]; purchase?: { purchase: PurchaseRecord; lines: PurchaseLineRecord[] }; voidPurchase?: { purchaseId: string; voidedBy: string; reason: string } };
+  | { v: 1; type: 'stock'; at: number; items: StockItemSnapshot[]; movements: MovementRecord[]; purchase?: { purchase: PurchaseRecord; lines: PurchaseLineRecord[] }; voidPurchase?: { purchaseId: string; voidedBy: string; reason: string } }
+  /** Retail records (stock moves, goods receipts, ledgers, ...): retailJournal.ts. */
+  | RowsEntry;
 
 export function appendJournal(ctx: Ctx, entry: JournalEntry): void {
   mkdirSync(ctx.journalDir, { recursive: true });
@@ -115,11 +118,11 @@ export function replayJournal(ctx: Ctx): ReplayResult {
       const applied = tx(ctx.db, () => applyEntry(ctx, e));
       if (applied) res.replayed++; else res.skipped++;
     } catch (err) {
-      const id = e.type === 'invoice' ? e.full.invoice.id : e.type === 'cancel' ? e.invoiceId : e.type === 'shift_open' ? e.shift.id : e.type === 'stock' ? (e.purchase?.purchase.id ?? e.voidPurchase?.purchaseId ?? e.movements[0]?.id ?? e.items[0]?.id ?? '') : e.type === 'payment_correction' ? e.correction.id : e.shiftId;
+      const id = e.type === 'invoice' ? e.full.invoice.id : e.type === 'cancel' ? e.invoiceId : e.type === 'shift_open' ? e.shift.id : e.type === 'stock' ? (e.purchase?.purchase.id ?? e.voidPurchase?.purchaseId ?? e.movements[0]?.id ?? e.items[0]?.id ?? '') : e.type === 'payment_correction' ? e.correction.id : e.type === 'rows' ? `${e.op}@${e.at}` : e.shiftId;
       res.errors.push({ type: e.type, id, message: (err as Error).message });
     }
   }
-  if (res.replayed > 0) { recomputeDailySummary(ctx); recomputeStockBalances(ctx); }
+  if (res.replayed > 0) { recomputeDailySummary(ctx); recomputeStockBalances(ctx); tx(ctx.db, () => recomputeItemStock(ctx)); }
   return res;
 }
 
@@ -134,6 +137,7 @@ function applyEntry(ctx: Ctx, e: JournalEntry): boolean {
     return Number(r.changes) === 1;
   }
   if (e.type === 'stock') return applyStockEntry(ctx, e);
+  if (e.type === 'rows') return applyRowsEntry(ctx, e);
   if (e.type === 'payment_correction') {
     if (get(ctx.db, 'SELECT 1 FROM payment_correction WHERE id = ?', e.correction.id)) return false;
     if (!get(ctx.db, 'SELECT 1 FROM payment WHERE id = ?', e.correction.paymentId)) throw new Error('the corrected payment is missing');
