@@ -3,6 +3,16 @@ import { visibleLength } from './textPicture.ts';
 import type { Seg } from './textPicture.ts';
 import type { ReceiptData, ReceiptOptions } from './receipt.ts';
 import { formatINR, formatQty } from '../../core/money.ts';
+/** CGST Act s.31(3)(c), Rule 5(1)(g): what a composition dealer's bill must say instead of charging tax. */
+export const COMPOSITION_NOTE = 'Composition taxable person, not eligible to collect tax on supplies';
+export const docTitle = (d: ReceiptData) => (d.invoice.gstScheme === 'composition' ? 'BILL OF SUPPLY' : 'TAX INVOICE');
+/** MRP x quantity minus what was paid, over lines with an MRP (retail "You saved"); 0 when nothing was saved. */
+export function savings(d: ReceiptData): number {
+  let s = 0;
+  for (const l of d.lines) if (l.mrp) s += Math.max(0, Math.round((l.mrp * l.qtyMilli) / 1000) - l.lineTotal);
+  return s;
+}
+
 
 /**
  * Receipt design files (.retailreceipt): a shop's own bill layout, described as data.
@@ -21,7 +31,7 @@ type Align = 'left' | 'center' | 'right';
 type Size = 'normal' | 'tall' | 'wide' | 'big';
 interface Style { align?: Align; bold?: boolean; size?: Size; if?: string }
 export type ItemField = 'sno' | 'name' | 'qty' | 'rate' | 'amount' | 'hsn' | 'gst';
-export type TotalRow = 'subtotal' | 'discount' | 'taxable' | 'gst' | 'cess' | 'roundoff' | 'tax-total' | 'total-qty';
+export type TotalRow = 'subtotal' | 'discount' | 'taxable' | 'gst' | 'cess' | 'roundoff' | 'tax-total' | 'total-qty' | 'savings';
 interface Column { field: ItemField; label?: string; width?: number | '*'; align?: 'left' | 'right'; decimals?: number }
 interface InfoColumn { label: string; value: string }
 
@@ -73,7 +83,7 @@ function istParts(ms: number) {
 const SIZES = ['normal', 'tall', 'wide', 'big'];
 const ALIGNS = ['left', 'center', 'right'];
 const FIELDS: ItemField[] = ['sno', 'name', 'qty', 'rate', 'amount', 'hsn', 'gst'];
-const TOTALS: TotalRow[] = ['subtotal', 'discount', 'taxable', 'gst', 'cess', 'roundoff', 'tax-total', 'total-qty'];
+const TOTALS: TotalRow[] = ['subtotal', 'discount', 'taxable', 'gst', 'cess', 'roundoff', 'tax-total', 'total-qty', 'savings'];
 const RULE_CHARS = ['-', '=', '*', '_', '.', '~', '#'];
 const SYMBOLS = ['', 'Rs', 'Rs.', 'INR', '₹']; // the rupee sign prints as a picture (textPicture.ts), or as "Rs" where it cannot be drawn
 const STYLE_KEYS = ['align', 'bold', 'size', 'if'];
@@ -260,7 +270,8 @@ export function renderTemplate(t: ReceiptTemplate, d: ReceiptData, o: ReceiptOpt
       case 'rule': p.rule(b.char ?? '-'); break;
       case 'blank': for (let i = 0; i < (b.lines ?? 1); i++) p.line(''); break;
       case 'doc-title': styled({ align: 'center', bold: true, ...b }, () => {
-        aligned(o.sample ? 'SAMPLE - NOT A BILL' : credit ? 'CREDIT NOTE' : 'TAX INVOICE', b.align ?? 'center');
+        aligned(o.sample ? 'SAMPLE - NOT A BILL' : credit ? 'CREDIT NOTE' : docTitle(d), b.align ?? 'center');
+        if (!credit && !o.sample && d.invoice.gstScheme === 'composition') p.wrapped(COMPOSITION_NOTE);
         if (d.invoice.status === 'CANCELLED') aligned('*** CANCELLED ***', b.align ?? 'center');
         if (o.copyNo > 1) aligned('*** DUPLICATE ***', b.align ?? 'center');
       }); break;
@@ -281,6 +292,7 @@ export function renderTemplate(t: ReceiptTemplate, d: ReceiptData, o: ReceiptOpt
         else if (row === 'roundoff') { if (inv.roundOff !== 0) p.twoCol(label ?? 'Round off', signed(inv.roundOff)); }
         else if (row === 'tax-total') p.twoCol(label ?? 'Total GST', money(inv.cgst + inv.sgst + inv.igst + inv.cess));
         else if (row === 'total-qty') p.twoCol(label ?? 'Total quantity', qty(d.lines.reduce((s, l) => s + l.qtyMilli, 0)));
+        else if (row === 'savings') { const sv = savings(d); if (sv > 0) p.bold(true).twoCol(label ?? 'You saved', money(sv)).bold(false); }
       } break;
       case 'grand-total': styled({ size: 'tall', bold: true, ...b }, () => p.twoCol(credit ? (b.refundLabel ?? 'REFUND') : (b.label ?? 'TOTAL'), money(d.invoice.grandTotal))); break;
       case 'tax-table': taxTable(p, d, money); break;

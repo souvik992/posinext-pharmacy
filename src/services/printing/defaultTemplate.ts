@@ -147,6 +147,12 @@ export const DEFAULT_TEMPLATE: ReceiptTemplate = {
       "bold": true
     },
     {
+      "type": "totals",
+      "rows": [
+        "savings"
+      ]
+    },
+    {
       "type": "payments"
     },
     {

@@ -684,6 +684,28 @@ CREATE TABLE stock_count_line (
 );
 `;
 
+// V20 (Retail POS): barcode / shelf label printers. A printer can be a label printer speaking TSPL (TSC, TVS and most
+// Indian and Chinese label printers) or ZPL (Zebra; Godex in emulation), with its label size and gap. Print jobs gain
+// the LABEL kind (print_job is rebuilt: SQLite cannot change a CHECK; it has no triggers or views, one index).
+const V20 = `
+ALTER TABLE printer ADD COLUMN label_lang TEXT CHECK (label_lang IS NULL OR label_lang IN ('tspl','zpl'));
+ALTER TABLE printer ADD COLUMN label_w_mm INTEGER NOT NULL DEFAULT 50 CHECK (label_w_mm BETWEEN 20 AND 120);
+ALTER TABLE printer ADD COLUMN label_h_mm INTEGER NOT NULL DEFAULT 25 CHECK (label_h_mm BETWEEN 10 AND 120);
+ALTER TABLE printer ADD COLUMN label_gap_mm INTEGER NOT NULL DEFAULT 2 CHECK (label_gap_mm BETWEEN 0 AND 10);
+CREATE TABLE print_job_new (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('RECEIPT','KOT','REPORT','TEST','LABEL')),
+  ref_id TEXT, printer_id TEXT NOT NULL REFERENCES printer(id), payload BLOB NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('QUEUED','SENDING','PRINTED','FAILED')),
+  attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, next_attempt_at INTEGER NOT NULL DEFAULT 0,
+  dedupe_key TEXT UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+INSERT INTO print_job_new SELECT id, kind, ref_id, printer_id, payload, status, attempts, last_error, next_attempt_at, dedupe_key, created_at, updated_at FROM print_job;
+DROP TABLE print_job;
+ALTER TABLE print_job_new RENAME TO print_job;
+CREATE INDEX print_job_queue ON print_job(printer_id, status, next_attempt_at);
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: 'initial', sql: V1 },
   { version: 2, name: 'inventory', sql: V2 },
@@ -704,5 +726,6 @@ export const MIGRATIONS: Migration[] = [
   { version: 17, name: 'retail_purchasing', sql: V17 },
   { version: 18, name: 'retail_billing', sql: V18 },
   { version: 19, name: 'retail_counts', sql: V19 },
+  { version: 20, name: 'label_printers', sql: V20, foreignKeysOff: true },
 ];
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

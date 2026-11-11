@@ -38,6 +38,7 @@
       "discount", "gst", "cess", "roundoff"
     ] },
     { "type": "grand-total", "label": "Net Amount", "refundLabel": "Refund Amount", "size": "normal", "bold": true },
+    { "type": "totals", "rows": ["savings"] },
     { "type": "payments" },
     { "type": "footer" },
     { "type": "rule" }

@@ -25,16 +25,16 @@ export function receiptDataFrom(f: InvoiceFull): ReceiptData {
       invoiceNo: f.invoice.invoiceNo, docType: f.invoice.docType, status: f.invoice.status, issuedAt: f.invoice.issuedAt, tokenNo: f.invoice.tokenNo,
       grossTotal: f.invoice.grossTotal, discountTotal: f.invoice.discountTotal, taxableTotal: f.invoice.taxableTotal, cgst: f.invoice.cgst, sgst: f.invoice.sgst,
       igst: f.invoice.igst, cess: f.invoice.cess, roundOff: f.invoice.roundOff, grandTotal: f.invoice.grandTotal, buyerGstin: f.invoice.buyerGstin,
-      originalInvoiceNo: f.invoice.originalInvoiceNo,
+      originalInvoiceNo: f.invoice.originalInvoiceNo, gstScheme: (f.invoice as { gstScheme?: 'regular' | 'composition' }).gstScheme ?? 'regular',
     },
-    lines: f.lines.map((l) => ({ name: l.name, hsnCode: l.hsnCode, qtyMilli: l.qtyMilli, unitPrice: l.unitPrice, lineTotal: l.lineTotal, rateBp: l.rateBp, taxable: l.taxable, cgst: l.cgst, sgst: l.sgst, igst: l.igst, modifiers: l.modifiers, note: l.note })),
+    lines: f.lines.map((l) => ({ name: l.name, hsnCode: l.hsnCode, qtyMilli: l.qtyMilli, unitPrice: l.unitPrice, lineTotal: l.lineTotal, rateBp: l.rateBp, taxable: l.taxable, cgst: l.cgst, sgst: l.sgst, igst: l.igst, modifiers: l.modifiers, note: l.note, mrp: (l as { mrp?: number | null }).mrp ?? null })),
     payments: f.payments.map((p) => ({ mode: p.mode, amount: p.amount, tendered: p.tendered })),
     customer: f.customer ?? null, channel: f.orderChannel,
     cashierName: f.invoice.cashierName,
   };
 }
 
-export function enqueueJob(ctx: Ctx, j: { kind: 'RECEIPT' | 'KOT' | 'REPORT' | 'TEST'; refId: string | null; printerId: string; payload: Uint8Array; dedupeKey: string }): string | null {
+export function enqueueJob(ctx: Ctx, j: { kind: 'RECEIPT' | 'KOT' | 'REPORT' | 'TEST' | 'LABEL'; refId: string | null; printerId: string; payload: Uint8Array; dedupeKey: string }): string | null {
   const id = ctx.ids.next();
   const now = ctx.clock.now();
   const r = run(ctx.db, `INSERT INTO print_job(id, kind, ref_id, printer_id, payload, status, dedupe_key, created_at, updated_at)

@@ -1,7 +1,7 @@
 import { EscPos } from './escpos.ts';
 import { formatINR, formatQty } from '../../core/money.ts';
 import { istDateTime } from '../../core/numbering.ts';
-import { renderTemplate } from './receiptTemplate.ts';
+import { COMPOSITION_NOTE, docTitle, renderTemplate } from './receiptTemplate.ts';
 import type { ReceiptTemplate } from './receiptTemplate.ts';
 import { DEFAULT_TEMPLATE } from './defaultTemplate.ts';
 
@@ -11,8 +11,10 @@ export interface ReceiptData {
     invoiceNo: string; docType: 'TAX_INVOICE' | 'CREDIT_NOTE'; status: string; issuedAt: number; tokenNo: number | null;
     grossTotal: number; discountTotal: number; taxableTotal: number; cgst: number; sgst: number; igst: number; cess: number;
     roundOff: number; grandTotal: number; buyerGstin: string | null; originalInvoiceNo?: string | null;
+    /** Retail: a composition dealer's bill is a Bill of Supply (no tax). */
+    gstScheme?: 'regular' | 'composition';
   };
-  lines: Array<{ name: string; hsnCode?: string | null; qtyMilli: number; unitPrice: number; lineTotal: number; rateBp: number; taxable: number; cgst: number; sgst: number; igst: number; modifiers: Array<{ name: string; price: number }>; note: string | null }>;
+  lines: Array<{ name: string; hsnCode?: string | null; qtyMilli: number; unitPrice: number; lineTotal: number; rateBp: number; taxable: number; cgst: number; sgst: number; igst: number; modifiers: Array<{ name: string; price: number }>; note: string | null; /** Retail: MRP per unit (for 'You saved'). */ mrp?: number | null }>;
   payments: Array<{ mode: string; amount: number; tendered: number | null }>;
   cashierName: string;
   /** Typed on the bill (Customer and note), and where the order came from (COUNTER, APP, WEBSITE, SWIGGY, ZOMATO). */
@@ -29,6 +31,7 @@ export interface ReceiptOptions {
 }
 
 const money = (p: number) => formatINR(p, '');
+
 const rate = (bp: number) => `${bp / 100}%`.replace(/(\.\d)0+%/, '$1%');
 
 export function buildReceipt(d: ReceiptData, o: ReceiptOptions): Uint8Array {
@@ -45,7 +48,8 @@ export function buildStandardReceipt(d: ReceiptData, o: ReceiptOptions): Uint8Ar
   if (d.outlet.gstin) p.center(`GSTIN: ${d.outlet.gstin}`);
   if (d.outlet.fssaiNo) p.center(`FSSAI: ${d.outlet.fssaiNo}`);
   p.rule();
-  p.bold(true).center(o.sample ? 'SAMPLE - NOT A BILL' : credit ? 'CREDIT NOTE' : 'TAX INVOICE').bold(false);
+  p.bold(true).center(o.sample ? 'SAMPLE - NOT A BILL' : credit ? 'CREDIT NOTE' : docTitle(d)).bold(false);
+  if (!credit && !o.sample && d.invoice.gstScheme === 'composition') p.wrapped(COMPOSITION_NOTE);
   if (d.invoice.status === 'CANCELLED') p.bold(true).center('*** CANCELLED ***').bold(false);
   if (o.copyNo > 1) p.bold(true).center('*** DUPLICATE ***').bold(false);
   p.twoCol('No:', d.invoice.invoiceNo);
