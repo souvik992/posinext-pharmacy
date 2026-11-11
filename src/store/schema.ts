@@ -499,6 +499,139 @@ CREATE TABLE licence (
 );
 `;
 
+// V16 (Retail POS): retail items. MRP and the GST unit (UQC) on the item; brands; size/colour variants made from a
+// template; several barcodes per item, each for a pack size (a case barcode adds 12); PLU for weighing-scale labels;
+// batches with expiry and their own MRP (the same item can be on the shelf at two MRPs); stock per item and batch with
+// an append-only ledger (the GST Rule 56 stock account); weighing-scale barcode layouts. reports/ has the research.
+const V16 = `
+CREATE TABLE brand (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE UNIQUE INDEX brand_name ON brand(lower(name)) WHERE deleted_at IS NULL;
+CREATE TABLE item_template (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, category_id TEXT REFERENCES category(id), brand_id TEXT REFERENCES brand(id),
+  attributes_json TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+ALTER TABLE item ADD COLUMN mrp INTEGER CHECK (mrp IS NULL OR mrp >= 0);
+ALTER TABLE item ADD COLUMN brand_id TEXT REFERENCES brand(id);
+ALTER TABLE item ADD COLUMN uqc TEXT NOT NULL DEFAULT 'NOS';
+ALTER TABLE item ADD COLUMN is_weighed INTEGER NOT NULL DEFAULT 0 CHECK (is_weighed IN (0,1));
+ALTER TABLE item ADD COLUMN batch_tracked INTEGER NOT NULL DEFAULT 0 CHECK (batch_tracked IN (0,1));
+ALTER TABLE item ADD COLUMN track_stock INTEGER NOT NULL DEFAULT 1 CHECK (track_stock IN (0,1));
+ALTER TABLE item ADD COLUMN plu TEXT;
+ALTER TABLE item ADD COLUMN purchase_price INTEGER CHECK (purchase_price IS NULL OR purchase_price >= 0);
+ALTER TABLE item ADD COLUMN wholesale_price INTEGER CHECK (wholesale_price IS NULL OR wholesale_price >= 0);
+ALTER TABLE item ADD COLUMN reorder_level_milli INTEGER NOT NULL DEFAULT 0 CHECK (reorder_level_milli >= 0);
+ALTER TABLE item ADD COLUMN template_id TEXT REFERENCES item_template(id);
+ALTER TABLE item ADD COLUMN variant_json TEXT;
+CREATE UNIQUE INDEX item_plu ON item(plu) WHERE plu IS NOT NULL AND deleted_at IS NULL;
+CREATE INDEX item_template_items ON item(template_id) WHERE template_id IS NOT NULL;
+
+CREATE TABLE item_scan_code (
+  code_key TEXT PRIMARY KEY, code TEXT NOT NULL, item_id TEXT NOT NULL REFERENCES item(id),
+  pack_qty_milli INTEGER NOT NULL DEFAULT 1000 CHECK (pack_qty_milli > 0), created_at INTEGER NOT NULL
+);
+CREATE INDEX item_scan_code_item ON item_scan_code(item_id);
+INSERT OR IGNORE INTO item_scan_code (code_key, code, item_id, pack_qty_milli, created_at)
+  SELECT upper(trim(barcode)), trim(barcode), id, 1000, updated_at FROM item WHERE trim(ifnull(barcode, '')) <> '' AND deleted_at IS NULL;
+
+CREATE TABLE batch (
+  id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES item(id), batch_no TEXT NOT NULL,
+  mfg_date TEXT, expiry_date TEXT, mrp INTEGER CHECK (mrp IS NULL OR mrp >= 0),
+  sale_price INTEGER CHECK (sale_price IS NULL OR sale_price >= 0), cost INTEGER CHECK (cost IS NULL OR cost >= 0),
+  supplier_id TEXT, created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX batch_key ON batch(item_id, batch_no, ifnull(mrp, -1));
+CREATE INDEX batch_expiry ON batch(expiry_date) WHERE expiry_date IS NOT NULL;
+-- A batch is a fact about stock that arrived: its item, number and MRP never change once made.
+CREATE TRIGGER batch_fixed BEFORE UPDATE OF item_id, batch_no, mrp ON batch
+  BEGIN SELECT RAISE(ABORT, 'a batch keeps its item, number and MRP; make a new batch instead'); END;
+
+-- Stock on hand per item and batch ('' = not batch tracked), kept in step with the ledger in the same transaction.
+CREATE TABLE item_stock (
+  item_id TEXT NOT NULL REFERENCES item(id), batch_key TEXT NOT NULL DEFAULT '',
+  qty_milli INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (item_id, batch_key)
+);
+CREATE TABLE item_stock_move (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+  item_id TEXT NOT NULL REFERENCES item(id), batch_id TEXT REFERENCES batch(id),
+  delta_milli INTEGER NOT NULL CHECK (delta_milli <> 0),
+  kind TEXT NOT NULL CHECK (kind IN ('OPENING','PURCHASE','PURCHASE_RETURN','PURCHASE_VOID','SALE','SALE_RETURN','SALE_CANCEL','ADJUST','COUNT','TRANSFER_OUT','TRANSFER_IN')),
+  reason TEXT, ref_type TEXT, ref_id TEXT, unit_cost INTEGER, created_by TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX item_stock_move_item ON item_stock_move(item_id, seq);
+CREATE INDEX item_stock_move_ref ON item_stock_move(ref_type, ref_id);
+CREATE TRIGGER item_stock_move_no_update BEFORE UPDATE ON item_stock_move
+  BEGIN SELECT RAISE(ABORT, 'stock movements are immutable'); END;
+CREATE TRIGGER item_stock_move_no_delete BEFORE DELETE ON item_stock_move
+  BEGIN SELECT RAISE(ABORT, 'stock movements are immutable'); END;
+
+CREATE TABLE scale_profile (
+  id TEXT PRIMARY KEY, profile_json TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)), updated_at INTEGER NOT NULL
+);
+`;
+
+// V17 (Retail POS): buying stock. Suppliers and what the shop owes them (an append-only ledger: bills add, payments and
+// returns take away); goods receipts (GRN) against the supplier's bill, with free quantity, batches, MRP and new selling
+// prices; purchase returns (debit notes); and per-FY document counters for GRN and debit note numbers.
+const V17 = `
+CREATE TABLE supplier (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, gstin TEXT, mobile TEXT, state_code TEXT, address TEXT,
+  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, deleted_at INTEGER
+);
+CREATE UNIQUE INDEX supplier_name ON supplier(lower(name)) WHERE deleted_at IS NULL;
+CREATE TABLE supplier_ledger (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, supplier_id TEXT NOT NULL REFERENCES supplier(id),
+  kind TEXT NOT NULL CHECK (kind IN ('OPENING','BILL','BILL_VOID','PAYMENT','RETURN','ADJUST')),
+  amount INTEGER NOT NULL CHECK (amount <> 0), ref_id TEXT, note TEXT, created_by TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX supplier_ledger_supplier ON supplier_ledger(supplier_id, seq);
+CREATE TRIGGER supplier_ledger_no_update BEFORE UPDATE ON supplier_ledger BEGIN SELECT RAISE(ABORT, 'ledger entries are immutable'); END;
+CREATE TRIGGER supplier_ledger_no_delete BEFORE DELETE ON supplier_ledger BEGIN SELECT RAISE(ABORT, 'ledger entries are immutable'); END;
+
+CREATE TABLE doc_counter (kind TEXT NOT NULL, fy TEXT NOT NULL, last INTEGER NOT NULL, PRIMARY KEY (kind, fy));
+
+CREATE TABLE grn (
+  id TEXT PRIMARY KEY, grn_no TEXT NOT NULL UNIQUE, supplier_id TEXT NOT NULL REFERENCES supplier(id),
+  bill_no TEXT, bill_date TEXT, inter_state INTEGER NOT NULL DEFAULT 0 CHECK (inter_state IN (0,1)),
+  taxable_total INTEGER NOT NULL, tax_total INTEGER NOT NULL, other_charges INTEGER NOT NULL DEFAULT 0, round_off INTEGER NOT NULL DEFAULT 0,
+  total INTEGER NOT NULL CHECK (total >= 0), note TEXT,
+  status TEXT NOT NULL CHECK (status IN ('POSTED','VOIDED')), created_by TEXT NOT NULL, created_at INTEGER NOT NULL,
+  voided_at INTEGER, voided_by TEXT, void_reason TEXT
+);
+CREATE INDEX grn_supplier ON grn(supplier_id, created_at);
+CREATE UNIQUE INDEX grn_supplier_bill ON grn(supplier_id, lower(bill_no)) WHERE bill_no IS NOT NULL AND status = 'POSTED';
+CREATE TABLE grn_line (
+  id TEXT PRIMARY KEY, grn_id TEXT NOT NULL REFERENCES grn(id), line_no INTEGER NOT NULL,
+  item_id TEXT NOT NULL REFERENCES item(id), batch_id TEXT REFERENCES batch(id),
+  qty_milli INTEGER NOT NULL CHECK (qty_milli > 0), free_qty_milli INTEGER NOT NULL DEFAULT 0 CHECK (free_qty_milli >= 0),
+  unit_cost INTEGER NOT NULL CHECK (unit_cost >= 0), discount INTEGER NOT NULL DEFAULT 0 CHECK (discount >= 0),
+  taxable INTEGER NOT NULL, rate_bp INTEGER NOT NULL, tax INTEGER NOT NULL, line_total INTEGER NOT NULL,
+  mrp INTEGER, sale_price INTEGER
+);
+CREATE INDEX grn_line_grn ON grn_line(grn_id);
+CREATE TRIGGER grn_fixed BEFORE UPDATE OF grn_no, supplier_id, bill_no, bill_date, taxable_total, tax_total, other_charges, round_off, total ON grn
+  BEGIN SELECT RAISE(ABORT, 'a posted goods receipt is fixed; void it and enter it again'); END;
+CREATE TRIGGER grn_no_unvoid BEFORE UPDATE OF status ON grn WHEN OLD.status = 'VOIDED'
+  BEGIN SELECT RAISE(ABORT, 'a voided goods receipt stays voided'); END;
+CREATE TRIGGER grn_line_fixed BEFORE UPDATE ON grn_line BEGIN SELECT RAISE(ABORT, 'goods receipt lines are fixed'); END;
+
+CREATE TABLE purchase_return (
+  id TEXT PRIMARY KEY, doc_no TEXT NOT NULL UNIQUE, supplier_id TEXT NOT NULL REFERENCES supplier(id), grn_id TEXT REFERENCES grn(id),
+  inter_state INTEGER NOT NULL DEFAULT 0, taxable_total INTEGER NOT NULL, tax_total INTEGER NOT NULL, total INTEGER NOT NULL CHECK (total >= 0),
+  reason TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE TABLE purchase_return_line (
+  id TEXT PRIMARY KEY, return_id TEXT NOT NULL REFERENCES purchase_return(id), line_no INTEGER NOT NULL,
+  item_id TEXT NOT NULL REFERENCES item(id), batch_id TEXT REFERENCES batch(id),
+  qty_milli INTEGER NOT NULL CHECK (qty_milli > 0), unit_cost INTEGER NOT NULL, taxable INTEGER NOT NULL, rate_bp INTEGER NOT NULL, tax INTEGER NOT NULL, line_total INTEGER NOT NULL
+);
+CREATE INDEX purchase_return_line_return ON purchase_return_line(return_id);
+CREATE TRIGGER purchase_return_fixed BEFORE UPDATE ON purchase_return BEGIN SELECT RAISE(ABORT, 'debit notes are fixed'); END;
+CREATE TRIGGER purchase_return_line_fixed BEFORE UPDATE ON purchase_return_line BEGIN SELECT RAISE(ABORT, 'debit notes are fixed'); END;
+`;
+
 export const MIGRATIONS: Migration[] = [
   { version: 1, name: 'initial', sql: V1 },
   { version: 2, name: 'inventory', sql: V2 },
@@ -515,5 +648,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 13, name: 'session_lock', sql: V13 },
   { version: 14, name: 'kitchen_tickets', sql: V14 },
   { version: 15, name: 'licence', sql: V15 },
+  { version: 16, name: 'retail_items', sql: V16 },
+  { version: 17, name: 'retail_purchasing', sql: V17 },
 ];
 export const SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;

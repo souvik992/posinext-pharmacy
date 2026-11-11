@@ -6,12 +6,16 @@ import { audit } from './audit.ts';
 import { emit } from './outbox.ts';
 import { assertPerm } from './permissions.ts';
 import { camel, camelAll } from './camel.ts';
-import { parsePaise } from '../core/money.ts';
+import { mulDivRound, parsePaise } from '../core/money.ts';
+import { barcodeKey } from '../core/barcode.ts';
 import { checkStationId } from './stations.ts';
 
 const MAX_PRICE = 1_000_000_000; // Rs 1 crore per unit
 
-interface ItemRow { id: string; category_id: string | null; name: string; short_name: string | null; sku: string | null; barcode: string | null; hsn_code: string | null; tax_group_id: string; price: number; unit: string; is_veg: number | null; image_file: string | null; description: string | null; active: number; version: number; updated_at: number; deleted_at: number | null }
+interface ItemRow {
+  id: string; category_id: string | null; name: string; short_name: string | null; sku: string | null; barcode: string | null; hsn_code: string | null; tax_group_id: string; price: number; unit: string; is_veg: number | null; image_file: string | null; description: string | null; active: number; version: number; updated_at: number; deleted_at: number | null;
+  mrp: number | null; brand_id: string | null; uqc: string; is_weighed: number; batch_tracked: number; track_stock: number; plu: string | null; purchase_price: number | null; wholesale_price: number | null; reorder_level_milli: number;
+}
 
 function fail(msg: string): never { throw new AppError('VALIDATION', msg); }
 function clean(s: unknown, label: string, max: number, required = true): string | null {
@@ -28,7 +32,9 @@ export function getCatalog(ctx: Ctx) {
       (SELECT count(*) FROM item i WHERE i.category_id = c.id AND i.deleted_at IS NULL) AS item_count
     FROM category c WHERE c.deleted_at IS NULL ORDER BY c.sort_order, c.name`));
   const taxGroups = camelAll(all(ctx.db, 'SELECT id, name, rate_bp, cess_bp, price_includes_tax FROM tax_group WHERE deleted_at IS NULL ORDER BY rate_bp'));
-  const items = camelAll<Record<string, unknown>>(all(ctx.db, 'SELECT id, category_id, name, short_name, sku, barcode, hsn_code, tax_group_id, price, unit, is_veg, image_file, description, unavailable_on, prep_station_id FROM item WHERE deleted_at IS NULL AND active = 1 ORDER BY name'));
+  const items = camelAll<Record<string, unknown>>(all(ctx.db, `SELECT id, category_id, name, short_name, sku, barcode, hsn_code, tax_group_id, price, unit, is_veg, image_file, description, unavailable_on, prep_station_id,
+      mrp, brand_id, uqc, is_weighed, batch_tracked, track_stock, plu, purchase_price, wholesale_price, reorder_level_milli, template_id, variant_json
+    FROM item WHERE deleted_at IS NULL AND active = 1 ORDER BY name`));
   const links = all<{ item_id: string; group_id: string }>(ctx.db, 'SELECT item_id, group_id FROM item_modifier_group');
   const byItem = new Map<string, string[]>();
   for (const l of links) byItem.set(l.item_id, [...(byItem.get(l.item_id) ?? []), l.group_id]);
@@ -51,8 +57,11 @@ export function searchItems(ctx: Ctx, q: string, limit = 30) {
       ORDER BY rank LIMIT ?`, match, Math.min(Math.max(limit, 1), 100)));
 }
 
+/** Any of the item's barcodes (8, 12 or 13 digit forms of the same GTIN all match); see products.ts lookupScan for scale labels. */
 export function itemByBarcode(ctx: Ctx, code: string) {
-  return camel(get(ctx.db, 'SELECT id, category_id, name, price, unit, barcode FROM item WHERE barcode = ? AND deleted_at IS NULL AND active = 1', code)) ?? null;
+  return camel(get(ctx.db, `SELECT i.id, i.category_id, i.name, i.price, i.unit, i.barcode, b.pack_qty_milli
+      FROM item_scan_code b JOIN item i ON i.id = b.item_id
+     WHERE b.code_key = ? AND i.deleted_at IS NULL AND i.active = 1`, barcodeKey(code))) ?? null;
 }
 
 export function createCategory(ctx: Ctx, actor: Actor, requestId: string, input: { name: string; sortOrder?: number; prepStationId?: string | null }) {
@@ -130,7 +139,60 @@ export function createTaxGroup(ctx: Ctx, actor: Actor, requestId: string, input:
   });
 }
 
-export interface ItemInput { name: string; categoryId?: string | null; shortName?: string | null; sku?: string | null; barcode?: string | null; hsnCode?: string | null; taxGroupId: string; price: number; unit?: string; isVeg?: boolean | null; imageFile?: string | null; description?: string | null }
+export interface ItemInput {
+  name: string; categoryId?: string | null; shortName?: string | null; sku?: string | null; barcode?: string | null; hsnCode?: string | null; taxGroupId: string; price: number; unit?: string; isVeg?: boolean | null; imageFile?: string | null; description?: string | null;
+  // retail (V16)
+  mrp?: number | null; brandId?: string | null; uqc?: string; isWeighed?: boolean; batchTracked?: boolean; trackStock?: boolean; plu?: string | null;
+  purchasePrice?: number | null; wholesalePrice?: number | null; reorderLevelMilli?: number;
+}
+
+/** GST unit quantity codes used on retail bills and in GSTR-1 (the common ones; the full list is longer). */
+export const UQC = ['NOS', 'PCS', 'KGS', 'GMS', 'LTR', 'MLT', 'MTR', 'CMS', 'BOX', 'PAC', 'BTL', 'CAN', 'DOZ', 'PRS', 'SET', 'BAG', 'ROL', 'TBS', 'UNT', 'OTH'] as const;
+
+/** The price a customer pays for one unit, tax included (retail prices are usually entered that way already). */
+export function inclusiveUnitPrice(price: number, rateBp: number, cessBp: number, priceIncludesTax: boolean): number {
+  return priceIncludesTax ? price : price + mulDivRound(price, rateBp + cessBp, 10000);
+}
+
+function checkRetail(ctx: Ctx, i: ItemInput, selfId: string | null) {
+  const money = (v: number | null | undefined, label: string) => {
+    if (v === undefined || v === null) return null;
+    if (!Number.isInteger(v) || v < 0 || v > MAX_PRICE) fail(`${label} must be a whole number of paise between 0 and 1,000,000,000.`);
+    return v;
+  };
+  const mrp = money(i.mrp, 'MRP');
+  const purchasePrice = money(i.purchasePrice, 'Purchase price');
+  const wholesalePrice = money(i.wholesalePrice, 'Wholesale price');
+  if (mrp !== null) {
+    const tg = get<{ rate_bp: number; cess_bp: number; price_includes_tax: number }>(ctx.db, 'SELECT rate_bp, cess_bp, price_includes_tax FROM tax_group WHERE id = ?', i.taxGroupId)!;
+    const pays = inclusiveUnitPrice(i.price, tg.rate_bp, tg.cess_bp, tg.price_includes_tax === 1);
+    // Legal Metrology (Packaged Commodities) Rule 18(2): never sell above MRP, which includes all taxes.
+    if (pays > mrp) fail(`The selling price with tax (Rs ${(pays / 100).toFixed(2)}) is above the MRP (Rs ${(mrp / 100).toFixed(2)}). Selling above MRP is not allowed.`);
+    if (wholesalePrice !== null && inclusiveUnitPrice(wholesalePrice, tg.rate_bp, tg.cess_bp, tg.price_includes_tax === 1) > mrp) fail('The wholesale price with tax is above the MRP.');
+  }
+  const uqc = (i.uqc ?? 'NOS').trim().toUpperCase();
+  if (!(UQC as readonly string[]).includes(uqc)) fail(`Unit code (UQC) must be one of ${UQC.join(', ')}.`);
+  if (i.brandId && !get(ctx.db, 'SELECT 1 FROM brand WHERE id = ? AND deleted_at IS NULL', i.brandId)) fail('Unknown brand.');
+  const plu = clean(i.plu, 'PLU', 8, false);
+  if (plu) {
+    if (!/^\d{1,8}$/.test(plu)) fail('PLU (the code on weighing-scale labels) must be 1-8 digits.');
+    const dup = get<{ id: string }>(ctx.db, 'SELECT id FROM item WHERE plu = ? AND deleted_at IS NULL', plu);
+    if (dup && dup.id !== selfId) throw new AppError('DUPLICATE_PLU', 'Another item already uses this PLU.', 409);
+  }
+  const reorder = i.reorderLevelMilli ?? 0;
+  if (!Number.isInteger(reorder) || reorder < 0) fail('Reorder level must be zero or more.');
+  return { mrp, purchasePrice, wholesalePrice, uqc, plu, reorder, isWeighed: i.isWeighed ? 1 : 0, batchTracked: i.batchTracked ? 1 : 0, trackStock: i.trackStock === false ? 0 : 1, brandId: i.brandId ?? null };
+}
+
+/** The item's main barcode is also one of its scan codes (item_scan_code); other barcodes are added in products.ts. */
+function syncMainBarcode(ctx: Ctx, itemId: string, oldCode: string | null, newCode: string | null) {
+  if (oldCode && oldCode !== newCode) run(ctx.db, 'DELETE FROM item_scan_code WHERE code_key = ? AND item_id = ?', barcodeKey(oldCode), itemId);
+  if (newCode) {
+    const owner = get<{ item_id: string }>(ctx.db, 'SELECT item_id FROM item_scan_code WHERE code_key = ?', barcodeKey(newCode));
+    if (owner && owner.item_id !== itemId) throw new AppError('DUPLICATE_BARCODE', 'Another item already uses this barcode.', 409);
+    if (!owner) run(ctx.db, 'INSERT INTO item_scan_code (code_key, code, item_id, pack_qty_milli, created_at) VALUES (?,?,?,?,?)', barcodeKey(newCode), newCode, itemId, 1000, ctx.clock.now());
+  }
+}
 
 function checkItem(ctx: Ctx, i: ItemInput, selfId: string | null) {
   const name = clean(i.name, 'Item name', 120)!;
@@ -156,11 +218,15 @@ export function createItem(ctx: Ctx, actor: Actor, requestId: string, input: Ite
   return runCommand(ctx, requestId, 'item.create', actor, () => {
     assertPerm(actor, 'catalog.write');
     const c = checkItem(ctx, input, null);
+    const r = checkRetail(ctx, input, null);
     const id = ctx.ids.next();
-    run(ctx.db, `INSERT INTO item(id, category_id, name, short_name, sku, barcode, hsn_code, tax_group_id, price, unit, is_veg, image_file, description, updated_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, id, input.categoryId ?? null, c.name, c.shortName, c.sku, c.barcode, c.hsn, input.taxGroupId, input.price, c.unit,
-      input.isVeg === undefined || input.isVeg === null ? null : input.isVeg ? 1 : 0, input.imageFile ?? null, c.description, ctx.clock.now());
-    audit(ctx, actor.userId, 'item.create', 'item', id, { name: c.name, price: input.price });
+    run(ctx.db, `INSERT INTO item(id, category_id, name, short_name, sku, barcode, hsn_code, tax_group_id, price, unit, is_veg, image_file, description, updated_at,
+                   mrp, brand_id, uqc, is_weighed, batch_tracked, track_stock, plu, purchase_price, wholesale_price, reorder_level_milli)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?, ?,?,?,?,?,?,?,?,?,?)`, id, input.categoryId ?? null, c.name, c.shortName, c.sku, c.barcode, c.hsn, input.taxGroupId, input.price, c.unit,
+      input.isVeg === undefined || input.isVeg === null ? null : input.isVeg ? 1 : 0, input.imageFile ?? null, c.description, ctx.clock.now(),
+      r.mrp, r.brandId, r.uqc, r.isWeighed, r.batchTracked, r.trackStock, r.plu, r.purchasePrice, r.wholesalePrice, r.reorder);
+    syncMainBarcode(ctx, id, null, c.barcode);
+    audit(ctx, actor.userId, 'item.create', 'item', id, { name: c.name, price: input.price, mrp: r.mrp });
     emit(ctx, 'item', id, 'upsert', { id, name: c.name, price: input.price });
     return { id };
   });
@@ -179,12 +245,26 @@ export function updateItem(ctx: Ctx, actor: Actor, requestId: string, id: string
       isVeg: input.isVeg === undefined ? (cur.is_veg === null ? null : cur.is_veg === 1) : input.isVeg,
       imageFile: input.imageFile === undefined ? cur.image_file : input.imageFile,
       description: input.description === undefined ? cur.description : input.description,
+      mrp: input.mrp === undefined ? cur.mrp : input.mrp, brandId: input.brandId === undefined ? cur.brand_id : input.brandId,
+      uqc: input.uqc ?? cur.uqc, isWeighed: input.isWeighed ?? cur.is_weighed === 1, batchTracked: input.batchTracked ?? cur.batch_tracked === 1,
+      trackStock: input.trackStock ?? cur.track_stock === 1, plu: input.plu === undefined ? cur.plu : input.plu,
+      purchasePrice: input.purchasePrice === undefined ? cur.purchase_price : input.purchasePrice,
+      wholesalePrice: input.wholesalePrice === undefined ? cur.wholesale_price : input.wholesalePrice,
+      reorderLevelMilli: input.reorderLevelMilli ?? cur.reorder_level_milli,
     };
     const c = checkItem(ctx, merged, id);
-    run(ctx.db, `UPDATE item SET category_id=?, name=?, short_name=?, sku=?, barcode=?, hsn_code=?, tax_group_id=?, price=?, unit=?, is_veg=?, image_file=?, description=?, version=version+1, updated_at=? WHERE id=?`,
+    const r = checkRetail(ctx, merged, id);
+    if (cur.batch_tracked === 1 && r.batchTracked === 0 && get(ctx.db, "SELECT 1 FROM item_stock WHERE item_id = ? AND batch_key <> '' AND qty_milli <> 0", id)) {
+      fail('This item still has stock in batches. Sell or adjust it to zero before switching batch tracking off.');
+    }
+    run(ctx.db, `UPDATE item SET category_id=?, name=?, short_name=?, sku=?, barcode=?, hsn_code=?, tax_group_id=?, price=?, unit=?, is_veg=?, image_file=?, description=?,
+                   mrp=?, brand_id=?, uqc=?, is_weighed=?, batch_tracked=?, track_stock=?, plu=?, purchase_price=?, wholesale_price=?, reorder_level_milli=?,
+                   version=version+1, updated_at=? WHERE id=?`,
       merged.categoryId ?? null, c.name, c.shortName, c.sku, c.barcode, c.hsn, merged.taxGroupId, merged.price, c.unit,
-      merged.isVeg === null || merged.isVeg === undefined ? null : merged.isVeg ? 1 : 0, merged.imageFile ?? null, c.description, ctx.clock.now(), id);
-    audit(ctx, actor.userId, 'item.update', 'item', id, { price: merged.price });
+      merged.isVeg === null || merged.isVeg === undefined ? null : merged.isVeg ? 1 : 0, merged.imageFile ?? null, c.description,
+      r.mrp, r.brandId, r.uqc, r.isWeighed, r.batchTracked, r.trackStock, r.plu, r.purchasePrice, r.wholesalePrice, r.reorder, ctx.clock.now(), id);
+    syncMainBarcode(ctx, id, cur.barcode, c.barcode);
+    audit(ctx, actor.userId, 'item.update', 'item', id, { price: merged.price, mrp: r.mrp });
     emit(ctx, 'item', id, 'upsert', { id, name: c.name, price: merged.price });
     return { id };
   });
