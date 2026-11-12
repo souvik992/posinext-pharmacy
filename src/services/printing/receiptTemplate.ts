@@ -5,7 +5,18 @@ import type { ReceiptData, ReceiptOptions } from './receipt.ts';
 import { formatINR, formatQty } from '../../core/money.ts';
 /** CGST Act s.31(3)(c), Rule 5(1)(g): what a composition dealer's bill must say instead of charging tax. */
 export const COMPOSITION_NOTE = 'Composition taxable person, not eligible to collect tax on supplies';
-export const docTitle = (d: ReceiptData) => (d.invoice.gstScheme === 'composition' ? 'BILL OF SUPPLY' : 'TAX INVOICE');
+/**
+ * The document's title: a composition dealer always issues a Bill of Supply (s.31(3)(c)); a regular dealer's bill
+ * of only nil-rated or exempt goods is a Bill of Supply (Rule 49); one mixing taxed and exempt goods for an
+ * unregistered buyer may be a single Invoice-cum-Bill of Supply (Rule 46A, B2C only); anything else a Tax Invoice.
+ */
+export function docTitle(d: ReceiptData): string {
+  if (d.invoice.gstScheme === 'composition') return 'BILL OF SUPPLY';
+  const taxed = d.lines.some((l) => l.rateBp > 0), exempt = d.lines.some((l) => l.rateBp === 0);
+  if (d.lines.length && !taxed) return 'BILL OF SUPPLY';
+  if (taxed && exempt && !d.invoice.buyerGstin) return 'INVOICE-CUM-BILL OF SUPPLY';
+  return 'TAX INVOICE';
+}
 /** MRP x quantity minus what was paid, over lines with an MRP (retail "You saved"); 0 when nothing was saved. */
 export function savings(d: ReceiptData): number {
   let s = 0;

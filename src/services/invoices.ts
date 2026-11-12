@@ -22,7 +22,7 @@ import { queueInvoicePrints, reprintInvoice as reprintImpl } from './printing/jo
 import type { PrintSummary } from './printing/jobs.ts';
 import { camelAll } from './camel.ts';
 import { getSetting } from './settings.ts';
-import { isComposition } from './orders.ts';
+import { isComposition, outletState } from './orders.ts';
 import { afterCancel, afterCreditNote, afterSale } from './retailSale.ts';
 import { journalTracked, trackInserts } from './retailJournal.ts';
 
@@ -73,6 +73,8 @@ export function finalizeInvoice(ctx: Ctx, actor: Actor, requestId: string, input
     if (coupon?.problem) throw new AppError('COUPON_INVALID', `${coupon.problem} Remove the coupon or change the bill.`, 409);
     const bad = checkInvariants(calc);
     if (bad.length) throw new AppError('INTERNAL_TOTALS', `Totals failed self-check: ${bad[0]}`, 500);
+    // a composition dealer may not make inter-state supplies (CGST Act s.10(2)(c))
+    if (isComposition(ctx) && placeOfSupply !== outletState(ctx)) throw new AppError('COMPOSITION_INTERSTATE', 'A composition dealer cannot bill a sale to another state. Change the place of supply, or move to the regular GST scheme.', 422);
     const pays = validatePayments(input.payments, calc.grandTotal);
 
     ctx.hooks.fault?.('finalize.validated');

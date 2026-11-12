@@ -139,3 +139,31 @@ export function gstr1Csv(ctx: Ctx, month: string): Record<string, string> {
     'docs.csv': csv([['Nature of Document', 'Sr. No. From', 'Sr. No. To', 'Total Number', 'Cancelled'], ...g.docs.map((d) => [d.nature, d.from, d.to, d.total, d.cancelled])]),
   };
 }
+
+/**
+ * Composition dealers (CMP-08, quarterly): outward turnover of the quarter, split into taxable goods (taxed at 1%:
+ * 0.5% CGST + 0.5% SGST for traders, CGST Act s.10) and exempt goods (no tax), credit notes netted. quarter is the
+ * financial year and quarter, e.g. "2026-27-Q3" = October to December 2026.
+ * A composition bill charges no tax, so its lines carry 0%; whether a line's goods are taxable is read from the
+ * item's GST rate (today's rate: a rate change inside the quarter is not reflected; check with the CA then).
+ */
+export function compositionSummary(ctx: Ctx, quarter: string, traderRateBp = 100) {
+  const m = /^(\d{4})-(\d{2})-Q([1-4])$/.exec(quarter);
+  if (!m || (Number(m[1]) + 1) % 100 !== Number(m[2])) throw new AppError('VALIDATION', 'Quarter must be like 2026-27-Q3.');
+  const fyStart = Number(m[1]), q = Number(m[3]);
+  const firstMonth = 4 + (q - 1) * 3; // Q1 = Apr-Jun ... Q4 = Jan-Mar of the next year
+  const ym = (k: number) => { const mm = firstMonth + k; const y = mm > 12 ? fyStart + 1 : fyStart; return `${y}-${String(((mm - 1) % 12) + 1).padStart(2, '0')}`; };
+  const [from] = monthRange(ym(0)), [, to] = monthRange(ym(2));
+  const rows = all<{ doc_type: string; line_total: number; rate_bp: number | null }>(ctx.db,
+    `SELECT i.doc_type, l.line_total, t.rate_bp FROM invoice_line l JOIN invoice i ON i.id = l.invoice_id
+       LEFT JOIN item it ON it.id = l.item_id LEFT JOIN tax_group t ON t.id = it.tax_group_id
+      WHERE i.gst_scheme = 'composition' AND i.status = 'ISSUED' AND i.issued_at >= ? AND i.issued_at < ?`, from, to);
+  let taxable = 0, exempt = 0;
+  for (const r of rows) {
+    const v = r.doc_type === 'CREDIT_NOTE' ? -r.line_total : r.line_total;
+    if ((r.rate_bp ?? 0) > 0) taxable += v; else exempt += v;
+  }
+  const tax = Math.round((taxable * traderRateBp) / 10000);
+  const cgst = Math.floor(tax / 2);
+  return { quarter, from: ym(0), to: ym(2), taxableTurnover: taxable, exemptTurnover: exempt, totalTurnover: taxable + exempt, rateBp: traderRateBp, cgst, sgst: tax - cgst, tax };
+}

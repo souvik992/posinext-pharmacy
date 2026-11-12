@@ -13,7 +13,7 @@ import type { AdjustReason } from '../services/inventory.ts';
 import { createSupplier, getGrn, listGrns, listSuppliers, paySupplier, postGrn, postPurchaseReturn, supplierStatement, updateSupplier, voidGrn } from '../services/purchasing.ts';
 import { collectDue, customerStatement, customerView, findCustomer, listCustomers, saveCustomer, setOrderCustomer } from '../services/customers.ts';
 import { addScan } from '../services/orders.ts';
-import { gstr1, gstr1Csv } from '../services/gstr1.ts';
+import { compositionSummary, gstr1, gstr1Csv } from '../services/gstr1.ts';
 import { printLabels } from '../services/printing/labels.ts';
 
 type Add = (method: string, path: string, o: { auth?: boolean; idem?: boolean; format?: Route['format'] }, handler: (c: RC) => unknown) => void;
@@ -101,6 +101,7 @@ export function addRetailRoutes(add: Add, body: Body, rid: (c: RC) => string): v
     if (f === undefined) throw new AppError('NOT_FOUND', `No such GSTR-1 file. Files: ${Object.keys(files).join(', ')}.`, 404);
     return f;
   });
+  add('GET', '/api/composition-summary', {}, (c) => { assertPerm(c.actor, 'report.read'); return compositionSummary(c.ctx, c.query.get('quarter') ?? ''); });
   add('POST', '/api/labels/print', {}, (c) => printLabels(c.ctx, c.actor, rid(c), body(c, obj({ printerId: id, items: arr(obj({ itemId: id, batchId: opt(nullable(id)), copies: int({ min: 1, max: 999 }) }), { max: 500 }) }))));
 
   // a finalize may need a manager's approval for credit over the limit: the bill route already accepts override
