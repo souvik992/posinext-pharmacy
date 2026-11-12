@@ -1,4 +1,4 @@
-// Retail Data Manager (a separate app and installer from the POS): the shop's data for the owner. Same lockdown as the
+// PosiNext Pharmacy Data Manager (a separate app and installer from the POS): the shop's data for the owner. Same lockdown as the
 // POS window (desktop/src/main.ts): no Node in the page, no navigation away, no permissions, and its only way to the
 // data is /api and /mgr on its own origin (app://manager), which this process forwards with a per-launch secret.
 import { app, BrowserWindow, dialog, Menu, protocol, session, shell, utilityProcess } from 'electron';
@@ -8,14 +8,14 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync } from 'n
 import { join } from 'node:path';
 import { CSP, SCHEME, forwardHeaders, isAppUrl, resolveRequest } from '../protocol.ts';
 
-const PRODUCT = 'Retail Data Manager';
+const PRODUCT = 'PosiNext Pharmacy Data Manager';
 const HOST = 'manager';
 const START_URL = `${SCHEME}://${HOST}/manager.html`;
 const local = process.env.LOCALAPPDATA ?? app.getPath('appData');
 // This app's own folder (its window profile, log and temporary copies). Never inside the POS's folder.
-const home = process.env.MANAGER_HOME ?? join(local, 'RetailDataManager');
+const home = process.env.MANAGER_HOME ?? join(local, 'PosiNextPharmacyDataManager');
 // The POS's data on this computer (kept there when the POS is uninstalled). Read where it is; never created here.
-const posDataDir = process.env.POS_DATA_DIR ?? join(process.env.POS_HOME ?? join(local, 'RetailPOS'), 'data');
+const posDataDir = process.env.POS_DATA_DIR ?? join(process.env.POS_HOME ?? join(local, 'PosiNextPharmacy'), 'data');
 app.setPath('userData', join(home, 'electron'));
 const logDir = join(home, 'logs');
 mkdirSync(logDir, { recursive: true });
@@ -54,16 +54,16 @@ function startBackendProcess(): Promise<number> {
     child.stdout?.on('data', (d: Buffer) => log(`[backend] ${d.toString()}`));
     child.stderr?.on('data', (d: Buffer) => log(`[backend:err] ${d.toString()}`));
     let settled = false;
-    const timer = setTimeout(() => { if (!settled) { settled = true; reject(new Error('Retail Data Manager did not start within 60 seconds.')); child.kill(); } }, 60_000);
+    const timer = setTimeout(() => { if (!settled) { settled = true; reject(new Error('PosiNext Pharmacy Data Manager did not start within 60 seconds.')); child.kill(); } }, 60_000);
     child.on('message', (m: { type: string; port?: number; message?: string }) => {
       if (settled) return;
       settled = true; clearTimeout(timer);
-      if (m.type === 'ready' && m.port) { port = m.port; resolve(m.port); } else reject(new Error(m.message ?? 'Retail Data Manager failed to start.'));
+      if (m.type === 'ready' && m.port) { port = m.port; resolve(m.port); } else reject(new Error(m.message ?? 'PosiNext Pharmacy Data Manager failed to start.'));
     });
     child.on('exit', (code) => {
       log(`backend exited with code ${code}`);
       if (backend === child) backend = null;
-      if (!settled) { settled = true; clearTimeout(timer); reject(new Error(`Retail Data Manager stopped while starting (code ${code}).`)); return; }
+      if (!settled) { settled = true; clearTimeout(timer); reject(new Error(`PosiNext Pharmacy Data Manager stopped while starting (code ${code}).`)); return; }
       if (!quitting) {
         // nothing is lost (it only reads, or saves each change at once): start again and reload
         void startBackendProcess().then(() => win?.webContents.reload()).catch((e) => { log(`restart failed: ${String(e)}`); app.quit(); });
@@ -75,7 +75,7 @@ function startBackendProcess(): Promise<number> {
 async function pick(kind: 'folder' | 'file'): Promise<string | null> {
   const opts: Electron.OpenDialogOptions = kind === 'folder'
     ? { title: 'Choose a folder', properties: ['openDirectory', 'createDirectory'] }
-    : { title: 'Choose a Retail POS backup file', properties: ['openFile'], filters: [{ name: 'Retail POS backup', extensions: ['db'] }] };
+    : { title: 'Choose a PosiNext Pharmacy backup file', properties: ['openFile'], filters: [{ name: 'PosiNext Pharmacy backup', extensions: ['db'] }] };
   const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts);
   return r.canceled ? null : r.filePaths[0] ?? null;
 }
@@ -88,11 +88,11 @@ async function serve(req: Request): Promise<Response> {
   }
   const toBackend = url.pathname.startsWith('/mgr/') || url.pathname === '/api' || url.pathname.startsWith('/api/');
   if (toBackend) {
-    if (!port) return Response.json({ error: { code: 'NETWORK', message: 'Retail Data Manager is starting. Try again in a moment.' } }, { status: 503 });
+    if (!port) return Response.json({ error: { code: 'NETWORK', message: 'PosiNext Pharmacy Data Manager is starting. Try again in a moment.' } }, { status: 503 });
     const hasBody = req.method !== 'GET' && req.method !== 'HEAD';
     return fetch(`http://127.0.0.1:${port}${url.pathname}${url.search}`, {
       method: req.method, headers: forwardHeaders(req.headers, secret), body: hasBody ? await req.arrayBuffer() : undefined, redirect: 'manual',
-    }).catch(() => Response.json({ error: { code: 'NETWORK', message: 'Retail Data Manager is not responding.' } }, { status: 503 }));
+    }).catch(() => Response.json({ error: { code: 'NETWORK', message: 'PosiNext Pharmacy Data Manager is not responding.' } }, { status: 503 }));
   }
   const r = resolveRequest(req.url, uiDir, HOST);
   if (r.kind === 'file') {
@@ -140,7 +140,7 @@ async function start() {
   log(`starting ${PRODUCT} ${app.getVersion()} posData=${posDataDir}`);
   try { await startBackendProcess(); } catch (e) {
     log(`backend failed to start: ${String((e as Error).message)}`);
-    await dialog.showMessageBox({ type: 'error', title: PRODUCT, message: 'Retail Data Manager could not start.', detail: `${(e as Error).message}\n\nLog: ${logFile}`, buttons: ['Close'], noLink: true });
+    await dialog.showMessageBox({ type: 'error', title: PRODUCT, message: 'PosiNext Pharmacy Data Manager could not start.', detail: `${(e as Error).message}\n\nLog: ${logFile}`, buttons: ['Close'], noLink: true });
     app.exit(1);
     return;
   }

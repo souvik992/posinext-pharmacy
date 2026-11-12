@@ -13,7 +13,7 @@ import { storeLogo } from '../store.ts';
 import { parseEscPos } from './virtual.ts';
 
 /**
- * The shop's receipt design (Settings > Receipt): an uploaded .retailreceipt file, checked before it is saved.
+ * The shop's receipt design (Settings > Receipt): an uploaded .pharmacyreceipt file, checked before it is saved.
  * Stored in settings (so backups and restores carry it). Printing never fails because of a design: if a stored
  * design ever stops parsing (for example after an update), bills print in the standard layout and a warning is logged.
  */

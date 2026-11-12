@@ -1,4 +1,4 @@
-package com.retailpos.pos;
+package com.posinext.pharmacy;
 
 import android.content.ContentResolver;
 import android.content.Context;
@@ -68,7 +68,7 @@ final class BackupCopier {
         try {
             Uri t = Uri.parse(tree);
             Uri root = DocumentsContract.buildDocumentUriUsingTree(t, DocumentsContract.getTreeDocumentId(t));
-            Uri dir = childDir(t, root, "RetailPOS-backups");
+            Uri dir = childDir(t, root, "PosiNextPharmacy-backups");
             int n = copyDir(t, src, dir);
             prefs().edit().putLong("last", System.currentTimeMillis()).putString("lastError", "").apply();
             return n;

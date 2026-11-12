@@ -1,6 +1,6 @@
 // Draws the app icon (the "T" mark from the sidebar) at 512 px with Electron itself, so no image tools are needed.
 // Usage: npx electron scripts/make-icon.cjs   -> build/icon.png (electron-builder makes the Windows .ico from it)
-// Retail Data Manager's icon: ICON_LETTER=D ICON_BG="oklch(35% .06 50)" ICON_OUT=manager-icon.png (npm run icon:manager)
+// PosiNext Pharmacy Data Manager's icon: ICON_LETTER=D ICON_BG="oklch(35% .06 50)" ICON_OUT=manager-icon.png (npm run icon:manager)
 const letter = process.env.ICON_LETTER || 'T', bg = process.env.ICON_BG || 'oklch(66% .2 45)', out = process.env.ICON_OUT || 'icon.png';
 const { app, BrowserWindow } = require('electron');
 const { mkdirSync, readFileSync, writeFileSync } = require('node:fs');

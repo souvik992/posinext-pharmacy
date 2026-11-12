@@ -9,9 +9,9 @@ import { join } from 'node:path';
 import { CSP, SCHEME, START_URL, forwardHeaders, isAppUrl, resolveRequest } from './protocol.ts';
 import { startUpdates } from './updates.ts';
 
-const PRODUCT = 'Retail POS';
+const PRODUCT = 'PosiNext Pharmacy';
 // Local (not roaming) AppData: the database must never sync across a domain profile. Kept on uninstall.
-const home = process.env.POS_HOME ?? join(process.env.LOCALAPPDATA ?? app.getPath('appData'), 'RetailPOS'); // POS_HOME: tests use a temporary folder
+const home = process.env.POS_HOME ?? join(process.env.LOCALAPPDATA ?? app.getPath('appData'), 'PosiNextPharmacy'); // POS_HOME: tests use a temporary folder
 app.setPath('userData', join(home, 'electron'));
 const dataDir = process.env.POS_DATA_DIR ?? join(home, 'data');
 /** Signed add-ons (e.g. ODS), installed by their own installer next to the POS. */

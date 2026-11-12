@@ -26,7 +26,7 @@ import { DEFAULT_KOT_TEMPLATES } from './defaultKotTemplates.ts';
  *             with_bill  one ticket per prep station on the receipt printer, right after the bill
  *             off        no kitchen tickets
  *   designs   customer (with the bill), station (prep station printers), online (online orders, either mode);
- *             each an uploaded .retailkot file or the standard design (defaultKotTemplates.ts)
+ *             each an uploaded .pharmacykot file or the standard design (defaultKotTemplates.ts)
  */
 
 export type KotMode = 'off' | 'with_bill' | 'stations';

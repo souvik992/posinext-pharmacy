@@ -1,4 +1,4 @@
-package com.retailpos.pos;
+package com.posinext.pharmacy;
 
 import android.content.Context;
 import android.content.res.AssetManager;
@@ -51,7 +51,7 @@ final class PosBackend {
                 env.put("POS_APP_TOKEN", token);
                 env.put("POS_PORT_FILE", portFile.getPath());
                 env.put("POS_APP_VERSION", versionName(ctx));
-                env.put("POS_ADDONS_DIR", AddonInstaller.dir(ctx).getPath()); // add-ons installed from a .retailaddon file
+                env.put("POS_ADDONS_DIR", AddonInstaller.dir(ctx).getPath()); // add-ons installed from a .pharmacyaddon file
                 synchronized (PosBackend.class) { if (bridge == null) bridge = new PrinterBridge(ctx); }
                 env.put("POS_ANDROID_BRIDGE", bridge.start()); // USB and Bluetooth printers through this app
                 pb.directory(new File(appDir, "app"));

@@ -1,7 +1,7 @@
 # POS UI (billing counter)
 
 React + Vite + Tailwind UI for the backend in the parent folder. The look and the five screens come from the Lovable
-"Retail POS" prototype (https://pos111.lovable.app). Only its compiled site was available, so this is a rebuild that
+"PosiNext Pharmacy" prototype (https://pos111.lovable.app). Only its compiled site was available, so this is a rebuild that
 matches its design and is wired to the backend instead of browser storage.
 
 ## Run it (development)

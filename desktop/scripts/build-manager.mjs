@@ -1,4 +1,4 @@
-// Builds Retail Data Manager into desktop/dist-manager (a separate app from the POS, same Electron and backend code):
+// Builds PosiNext Pharmacy Data Manager into desktop/dist-manager (a separate app from the POS, same Electron and backend code):
 //   main.cjs     its Electron main process   (src/manager/main.ts)
 //   backend.cjs  ../src/manager/server.ts with the POS backend (zero runtime dependencies)
 //   ui/          its screens                 (vite build of ../ui with vite.manager.config.ts)

@@ -29,7 +29,7 @@ test('KOT designs: the standard customer KOT prints like the shop\'s ticket (tok
 });
 
 test('KOT designs: reprints, add-on tickets and cancelled items are always marked, whatever the design', () => {
-  const plain = parseKotTemplate(JSON.stringify({ format: 'retail-kot', version: 1, name: 'Bare', blocks: [{ type: 'items' }] }));
+  const plain = parseKotTemplate(JSON.stringify({ format: 'pharmacy-kot', version: 1, name: 'Bare', blocks: [{ type: 'items' }] }));
   assert.ok(plain.ok, JSON.stringify(plain));
   if (!plain.ok) return;
   const text = lines(renderKot(plain.template, ticket({ reprint: true, kotNo: 2, lines: [{ name: 'Paneer Tikka', qtyMilli: 1000, modifiers: [], note: null, cancel: true }] }), { cols: 32 })).join('\n');
@@ -39,7 +39,7 @@ test('KOT designs: reprints, add-on tickets and cancelled items are always marke
 });
 
 test('KOT designs: wrong files are refused with reasons; empty placeholders drop their line', () => {
-  const bad = parseKotTemplate(JSON.stringify({ format: 'retail-kot', version: 1, name: 'X', blocks: [{ type: 'text', text: '{{invoice.total}}', allign: 'center' }] }));
+  const bad = parseKotTemplate(JSON.stringify({ format: 'pharmacy-kot', version: 1, name: 'X', blocks: [{ type: 'text', text: '{{invoice.total}}', allign: 'center' }] }));
   assert.equal(bad.ok, false);
   if (!bad.ok) {
     const all = bad.errors.join(' ');
@@ -48,7 +48,7 @@ test('KOT designs: wrong files are refused with reasons; empty placeholders drop
     assert.match(all, /"items" block/);
   }
   assert.equal(parseKotTemplate('not json').ok, false);
-  assert.equal(parseKotTemplate(JSON.stringify({ format: 'retail-receipt', version: 1, name: 'X', blocks: [] })).ok, false);
+  assert.equal(parseKotTemplate(JSON.stringify({ format: 'pharmacy-receipt', version: 1, name: 'X', blocks: [] })).ok, false);
   // no order number yet (a KOT sent from the cart before billing): the date prints alone
   const out = lines(renderKot(DEFAULT_KOT_TEMPLATES.customer, ticket({ orderNo: null, station: null }), { cols: 32 }));
   assert.ok(!out.some((l) => l.includes('Order:')));

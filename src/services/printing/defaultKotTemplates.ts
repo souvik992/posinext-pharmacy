@@ -1,7 +1,7 @@
 import type { KotTemplate } from './kotTemplate.ts';
 
 /**
- * The standard KOT designs, one per slot. They must equal templates/kot/<slot>.retailkot (a test checks this).
+ * The standard KOT designs, one per slot. They must equal templates/kot/<slot>.pharmacykot (a test checks this).
  *   customer  printed with the bill on the receipt printer (one per prep station); laid out like the shop's own ticket
  *   station   printed at each prep station's printer
  *   online    online orders (store app, website, Swiggy, Zomato): the channel and online number on top
@@ -25,7 +25,7 @@ const tail: KotTemplate['blocks'] = [
 
 export const DEFAULT_KOT_TEMPLATES: Record<'customer' | 'station' | 'online', KotTemplate> = {
   customer: {
-    format: 'retail-kot', version: 1, name: 'Standard KOT', description: 'Token and prep station in big letters, then the items with their notes.',
+    format: 'pharmacy-kot', version: 1, name: 'Standard KOT', description: 'Token and prep station in big letters, then the items with their notes.',
     blocks: [
       ...common('KITCHEN ORDER TICKET'),
       { type: 'text', text: 'TOKEN', align: 'center', if: 'kot.token' },
@@ -36,7 +36,7 @@ export const DEFAULT_KOT_TEMPLATES: Record<'customer' | 'station' | 'online', Ko
     ],
   },
   station: {
-    format: 'retail-kot', version: 1, name: 'Standard prep station KOT', description: 'The prep station on top, then the token and the items.',
+    format: 'pharmacy-kot', version: 1, name: 'Standard prep station KOT', description: 'The prep station on top, then the token and the items.',
     blocks: [
       ...common('KITCHEN ORDER TICKET'),
       { type: 'text', text: '{{kot.station}}', align: 'center', size: 'big', bold: true },
@@ -47,7 +47,7 @@ export const DEFAULT_KOT_TEMPLATES: Record<'customer' | 'station' | 'online', Ko
     ],
   },
   online: {
-    format: 'retail-kot', version: 1, name: 'Standard online order KOT', description: 'The channel and online order number on top, delivery or pickup, the customer.',
+    format: 'pharmacy-kot', version: 1, name: 'Standard online order KOT', description: 'The channel and online order number on top, delivery or pickup, the customer.',
     blocks: [
       ...common('ONLINE ORDER - KOT'),
       { type: 'text', text: '{{order.channel}} {{online.no}}', align: 'center', size: 'big', bold: true },

@@ -4,7 +4,7 @@
 @font-face { font-family: 'Fraunces'; font-style: normal; font-weight: 400 700; font-display: swap; src: url('./assets/fonts/fraunces-latin.woff2') format('woff2'); }
 @font-face { font-family: 'Manrope'; font-style: normal; font-weight: 400 800; font-display: swap; src: url('./assets/fonts/manrope-latin.woff2') format('woff2'); }
 
-/* Design tokens from the Lovable "Retail POS" prototype. */
+/* Design tokens from the Lovable "PosiNext Pharmacy" prototype. */
 :root {
   --radius: .875rem;
   --background: oklch(96.5% .008 80);

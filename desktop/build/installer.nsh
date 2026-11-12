@@ -10,16 +10,16 @@ Var pid
 !macro customCheckAppRunning
   !insertmacro IS_POWERSHELL_AVAILABLE
   StrCpy $R2 0
-  retailWaitForClose:
+  posWaitForClose:
     !insertmacro FIND_PROCESS "${APP_EXECUTABLE_FILENAME}" $R0
     ${if} $R0 == 0
     ${andIf} $R2 < 30
       ${if} $R2 == 0
-        DetailPrint "Waiting for Retail POS to finish closing (saving its closing backup)..."
+        DetailPrint "Waiting for PosiNext Pharmacy to finish closing (saving its closing backup)..."
       ${endIf}
       IntOp $R2 $R2 + 1
       Sleep 1000
-      Goto retailWaitForClose
+      Goto posWaitForClose
     ${endIf}
   !insertmacro _CHECK_APP_RUNNING
 !macroend

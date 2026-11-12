@@ -15,16 +15,16 @@ export function savings(d: ReceiptData): number {
 
 
 /**
- * Receipt design files (.retailreceipt): a shop's own bill layout, described as data.
+ * Receipt design files (.pharmacyreceipt): a shop's own bill layout, described as data.
  *
- * A file is JSON: { "format": "retail-receipt", "version": 1, "name": ..., "blocks": [...] }. It can only arrange
+ * A file is JSON: { "format": "pharmacy-receipt", "version": 1, "name": ..., "blocks": [...] }. It can only arrange
  * what the backend already computed: it cannot run code or calculate anything, and every amount is a backend value
  * formatted for print. A design must keep what a GST bill needs (title, number, date, GSTIN, items, GST, total), and
  * the renderer always adds the safety marks (SAMPLE, CANCELLED, DUPLICATE, CREDIT NOTE) and the feed and cut.
  * Reference and examples: docs/RECEIPT_TEMPLATES.md and templates/receipt/.
  */
 
-export const TEMPLATE_EXT = '.retailreceipt';
+export const TEMPLATE_EXT = '.pharmacyreceipt';
 export const MAX_TEMPLATE_BYTES = 64 * 1024;
 
 type Align = 'left' | 'center' | 'right';
@@ -52,7 +52,7 @@ export type Block =
   | { type: 'info-table'; columns: InfoColumn[]; rule?: boolean };
 
 export interface ReceiptTemplate {
-  format: 'retail-receipt'; version: 1; name: string; description?: string;
+  format: 'pharmacy-receipt'; version: 1; name: string; description?: string;
   money?: { symbol?: string };
   blocks: Block[];
 }
@@ -101,7 +101,7 @@ export function parseTemplate(text: string): ParseResult {
   if (Buffer.byteLength(text, 'utf8') > MAX_TEMPLATE_BYTES) return { ok: false, errors: ['The file is too large (more than 64 KB). Is this the right file?'] };
   let raw: unknown;
   try { raw = JSON.parse(text.replace(/^﻿/, '')); } catch (e) { return { ok: false, errors: [`This is not a receipt design file (it is not valid JSON: ${(e as Error).message}).`] }; }
-  if (!isObj(raw) || raw.format !== 'retail-receipt') return { ok: false, errors: ['This is not a receipt design file ("format" must be "retail-receipt").'] };
+  if (!isObj(raw) || raw.format !== 'pharmacy-receipt') return { ok: false, errors: ['This is not a receipt design file ("format" must be "pharmacy-receipt").'] };
   if (raw.version !== 1) return { ok: false, errors: [`This design file is version ${String(raw.version)}; this POS reads version 1. Update the POS or ask for a version 1 file.`] };
   for (const k of Object.keys(raw)) if (!['format', 'version', 'name', 'description', 'money', 'blocks'].includes(k)) errors.push(`Unknown setting "${k}" at the top of the file.`);
   if (typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 60) errors.push('"name" must be text of 1 to 60 characters.');

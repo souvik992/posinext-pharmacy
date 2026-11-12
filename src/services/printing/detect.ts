@@ -39,7 +39,7 @@ async function defaultScan(): Promise<Scan> {
   const [usb, windows] = await Promise.all([listUsbPrinters().catch(() => []), listWindowsPrinters().catch(() => [])]);
   return { usb, windows };
 }
-/** Platforms where printers can be found: Windows, and Android inside the Retail POS app. */
+/** Platforms where printers can be found: Windows, and Android inside the PosiNext Pharmacy app. */
 const canScan = (platform: string) => platform === 'win32' || platform === 'android';
 
 const guessWidth = (s: string): 58 | 80 => (/(^|\D)58(\D|$)|58\s?mm/i.test(s) ? 58 : 80);

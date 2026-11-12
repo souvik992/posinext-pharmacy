@@ -82,7 +82,7 @@ export function BackupSettings() {
             <h3 className="mb-1 flex items-center gap-2 font-semibold"><HardDriveDownload className="h-4 w-4 text-primary" />Copy to a USB drive or another folder (offline)</h3>
             {ov.copy.dir ? (
               <>
-                <p className="text-sm">Folder: <b className="break-all">{ov.copy.dir}</b> (in it: <b>RetailPOS-backups</b>)</p>
+                <p className="text-sm">Folder: <b className="break-all">{ov.copy.dir}</b> (in it: <b>PosiNextPharmacy-backups</b>)</p>
                 <p className="text-sm text-muted-foreground">{ov.copy.lastAt ? `Last copied ${when(ov.copy.lastAt)}. Every new backup is copied there too.` : 'Not copied yet.'}</p>
                 {ov.copy.error && <p role="alert" className="mt-1 text-sm text-destructive">{ov.copy.error}</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -183,7 +183,7 @@ function PairCloud({ onPair, busy }: { onPair: (url: string, code: string) => Pr
   const [code, setCode] = useState('');
   return (
     <form className="mt-1" onSubmit={(e) => { e.preventDefault(); void onPair(url.trim(), code.trim()); }}>
-      <p className="text-sm text-muted-foreground">Backups are uploaded to the Retail backup server, so they are safe even if every device in the shop is lost. Ask Retail POS support for the server address and a pairing code (it works once, for 30 minutes).</p>
+      <p className="text-sm text-muted-foreground">Backups are uploaded to the Retail backup server, so they are safe even if every device in the shop is lost. Ask PosiNext Pharmacy support for the server address and a pairing code (it works once, for 30 minutes).</p>
       <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_12rem]">
         <label className="text-sm">Server address<input className="field mt-1 w-full" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://backup.example.in" inputMode="url" autoComplete="off" /></label>
         <label className="text-sm">Pairing code<input className="field mt-1 w-full uppercase tracking-widest" value={code} onChange={(e) => setCode(e.target.value)} placeholder="ABCD-2345" autoComplete="off" /></label>
@@ -202,7 +202,7 @@ function FolderRestore({ initial, onClose, onPick }: { initial: string; onClose:
   useEffect(() => { if (initial) void look(initial); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Modal title="Restore from a USB drive or folder" onClose={onClose} width="max-w-2xl">
-      <p className="text-sm text-muted-foreground">Choose the drive or folder with the backups (the RetailPOS-backups folder, or the drive it is on).</p>
+      <p className="text-sm text-muted-foreground">Choose the drive or folder with the backups (the PosiNextPharmacy-backups folder, or the drive it is on).</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <ChooseFolder label="Choose folder" primary onChosen={(d) => { setPath(d); void look(d); }} />
         {path && <span className="self-center break-all text-sm">{path}</span>}

@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 import type { ComponentType } from 'react';
 
 /**
- * Which app the shared screens run in. The POS (default) shows its own side bar; Retail Data Manager
+ * Which app the shared screens run in. The POS (default) shows its own side bar; PosiNext Pharmacy Data Manager
  * (ui/src/manager) gives its own side bar and hides what only the counter does (reprints, refunds, cancelling).
  */
 export interface NavItem { to: string; label: string; icon: ComponentType<{ className?: string }> }

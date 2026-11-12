@@ -143,4 +143,4 @@ test('Settings > Backups: only the owner, with the PIN again; the POS restarts i
   } finally { await p.b.shutdown('test'); rmSync(dir, { recursive: true, force: true }); }
 });
 
-// Online backups need a backup server: DinePOS Cloud will host them for Retail POS (Retail used its order hub).
+// Online backups need a backup server: DinePOS Cloud will host them for PosiNext Pharmacy (Retail used its order hub).

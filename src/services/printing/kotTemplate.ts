@@ -2,14 +2,14 @@ import { EscPos, sanitize } from './escpos.ts';
 import { formatQty } from '../../core/money.ts';
 
 /**
- * Kitchen order ticket designs (.retailkot): a shop's own KOT layout, described as data, like bill designs
+ * Kitchen order ticket designs (.pharmacykot): a shop's own KOT layout, described as data, like bill designs
  * (receiptTemplate.ts). Three slots use one each (Settings > Store settings > Kitchen tickets): the customer KOT (printed
  * with the bill), the prep station KOT, and the online order KOT. A design can only arrange what the POS knows about the
  * ticket; the renderer always adds the safety marks (REPRINT, ADD-ON KOT n, CANCEL lines) and the feed and cut.
  * Reference: docs/KOT_TEMPLATES.md; examples and the standard designs: templates/kot/.
  */
 
-export const KOT_TEMPLATE_EXT = '.retailkot';
+export const KOT_TEMPLATE_EXT = '.pharmacykot';
 const MAX_BYTES = 32 * 1024;
 
 type Align = 'left' | 'center' | 'right';
@@ -24,7 +24,7 @@ export type KotBlock =
   | ({ type: 'kot-title' } & Style)
   | { type: 'items'; size?: Size; bold?: boolean; modifiers?: boolean; notes?: boolean };
 
-export interface KotTemplate { format: 'retail-kot'; version: 1; name: string; description?: string; blocks: KotBlock[] }
+export interface KotTemplate { format: 'pharmacy-kot'; version: 1; name: string; description?: string; blocks: KotBlock[] }
 export type KotParseResult = { ok: true; template: KotTemplate } | { ok: false; errors: string[] };
 
 /** One ticket, as the kitchen sees it. */
@@ -74,7 +74,7 @@ export function parseKotTemplate(text: string): KotParseResult {
   if (Buffer.byteLength(text, 'utf8') > MAX_BYTES) return { ok: false, errors: ['The file is too large (more than 32 KB). Is this the right file?'] };
   let raw: unknown;
   try { raw = JSON.parse(text.replace(/^﻿/, '')); } catch (e) { return { ok: false, errors: [`This is not a KOT design file (it is not valid JSON: ${(e as Error).message}).`] }; }
-  if (!isObj(raw) || raw.format !== 'retail-kot') return { ok: false, errors: ['This is not a KOT design file ("format" must be "retail-kot").'] };
+  if (!isObj(raw) || raw.format !== 'pharmacy-kot') return { ok: false, errors: ['This is not a KOT design file ("format" must be "pharmacy-kot").'] };
   if (raw.version !== 1) return { ok: false, errors: [`This KOT design is version ${String(raw.version)}; this POS reads version 1.`] };
   for (const k of Object.keys(raw)) if (!['format', 'version', 'name', 'description', 'blocks'].includes(k)) errors.push(`Unknown setting "${k}" at the top of the file.`);
   if (typeof raw.name !== 'string' || !raw.name.trim() || raw.name.length > 60) errors.push('"name" must be text of 1 to 60 characters.');

@@ -1,5 +1,5 @@
 {
-  "name": "retail-pos",
+  "name": "posinext-pharmacy",
   "version": "0.1.0",
   "private": true,
   "description": "Offline-first retail POS backend: GST billing core, SQLite store, print queue, local HTTP API. Zero runtime dependencies.",

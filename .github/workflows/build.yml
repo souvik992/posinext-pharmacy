@@ -78,9 +78,9 @@ jobs:
           npx electron-builder --win --config electron-builder.config.cjs --publish never
       - uses: actions/upload-artifact@v4
         with:
-          name: RetailPOS-Windows
+          name: PosiNextPharmacy-Windows
           path: desktop/release/*.exe
-      - name: Build Retail Data Manager installer
+      - name: Build PosiNext Pharmacy Data Manager installer
         working-directory: desktop
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -89,7 +89,7 @@ jobs:
           npx electron-builder --win --config electron-builder.manager.cjs --publish never
       - uses: actions/upload-artifact@v4
         with:
-          name: RetailDataManager-Windows
+          name: PosiNextPharmacyDataManager-Windows
           path: desktop/release-manager/*.exe
           if-no-files-found: error
 
@@ -132,6 +132,6 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: RetailPOS-Android
+          name: PosiNextPharmacy-Android
           path: android/app/build/outputs/apk/*/*.apk
           if-no-files-found: error

@@ -1,5 +1,5 @@
 {
-  "format": "retail-receipt",
+  "format": "pharmacy-receipt",
   "version": 1,
   "name": "Restaurant with GST table",
   "description": "Serial numbers and HSN on items, a GST summary table, a big token number and a UPI QR code to pay. Best on 80 mm paper.",

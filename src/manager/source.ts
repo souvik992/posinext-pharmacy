@@ -7,7 +7,7 @@ import { AppError, currentSchemaVersion, get, openDb, quickCheck } from '../stor
 import { SCHEMA_VERSION } from '../store/schema.ts';
 
 /**
- * Where Retail Data Manager reads from (see docs/DECISIONS.md, "Data Manager").
+ * Where PosiNext Pharmacy Data Manager reads from (see docs/DECISIONS.md, "Data Manager").
  *
  * - **live**: the data folder itself, opened like the POS opens it. Only when the POS is closed and the data is at
  *   exactly this app's schema, so opening it never upgrades the shop's database behind an older POS.
@@ -35,8 +35,8 @@ export interface Source {
 }
 
 export const VIEW_ONLY = {
-  posOpen: 'Retail POS is open on this computer, so this is a copy taken just now and you can only look. Close the POS to make changes or restore a backup.',
-  older: 'This data was last opened by an older Retail POS. You can look at everything; to make changes here, update Retail POS on this computer and open it once.',
+  posOpen: 'PosiNext Pharmacy is open on this computer, so this is a copy taken just now and you can only look. Close the POS to make changes or restore a backup.',
+  older: 'This data was last opened by an older PosiNext Pharmacy. You can look at everything; to make changes here, update PosiNext Pharmacy on this computer and open it once.',
   file: 'This is a backup file: you can look at everything in it. To bring it back into the shop, open "This computer\'s POS data" and restore it on the Backups page.',
 };
 
@@ -53,7 +53,7 @@ function withReadOnly<T>(dbFile: string, fn: (db: DatabaseSync) => T): T {
   const had = ['-wal', '-shm'].filter((s) => existsSync(dbFile + s));
   let db: DatabaseSync;
   try { db = openDb(dbFile, { readOnly: true, skipMigrate: true }); } catch (e) {
-    throw new AppError('DATA_UNREADABLE', `This file cannot be read as Retail POS data: ${String((e as Error).message ?? e)}`, 422);
+    throw new AppError('DATA_UNREADABLE', `This file cannot be read as PosiNext Pharmacy data: ${String((e as Error).message ?? e)}`, 422);
   }
   try { return fn(db); } finally {
     db.close();
@@ -104,13 +104,13 @@ export async function openSource(want: Want, o: OpenOptions): Promise<Source> {
   const dbFile = isFile ? want.path : join(folder, 'pos.db');
   if (!existsSync(dbFile)) {
     throw want.origin === 'data'
-      ? new AppError('NO_DATA', 'No Retail POS data was found on this computer. Open a data folder or a backup file (for example from a USB drive).', 404)
-      : new AppError('NO_DATA', isFile ? 'That file is not there any more.' : 'That folder has no Retail POS data in it (no pos.db file).', 404);
+      ? new AppError('NO_DATA', 'No PosiNext Pharmacy data was found on this computer. Open a data folder or a backup file (for example from a USB drive).', 404)
+      : new AppError('NO_DATA', isFile ? 'That file is not there any more.' : 'That folder has no PosiNext Pharmacy data in it (no pos.db file).', 404);
   }
   const imagesFrom = join(isFile ? dirname(dbFile) : folder, 'images');
   const schema = schemaOf(dbFile);
-  if (schema > SCHEMA_VERSION) throw new AppError('SCHEMA_TOO_NEW', 'This data comes from a newer Retail POS. Install the latest Retail Data Manager to open it.', 409);
-  if (schema < 1) throw new AppError('DATA_UNREADABLE', 'This file is not Retail POS data.', 422);
+  if (schema > SCHEMA_VERSION) throw new AppError('SCHEMA_TOO_NEW', 'This data comes from a newer PosiNext Pharmacy. Install the latest PosiNext Pharmacy Data Manager to open it.', 409);
+  if (schema < 1) throw new AppError('DATA_UNREADABLE', 'This file is not PosiNext Pharmacy data.', 422);
 
   const viewOnly = isFile ? VIEW_ONLY.file : o.posRunning ? VIEW_ONLY.posOpen : schema < SCHEMA_VERSION ? VIEW_ONLY.older : null;
   if (!viewOnly) {

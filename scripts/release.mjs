@@ -1,14 +1,14 @@
 // Builds the Windows installers on this PC and uploads them to DinePOS Cloud (fine-dine cloud/hub, roadmap P8-11), which
 // offers them in the customer portal (Client area > Downloads). CI does not publish installers; they are built here.
 //
-//   npm run release                 build Retail POS + ODS, then upload both
+//   npm run release                 build PosiNext Pharmacy + ODS, then upload both
 //   npm run release -- --no-build   upload the installers already built (the newest version of each)
 //   npm run release -- --only retail    (or --only ods)
 //   npm run release -- --allow-dirty    build even with uncommitted changes (not recommended)
 //
 // Where to upload: %USERPROFILE%\.dinepos\release.json  {"hubUrl": "https://cloud.example.com", "adminKey": "..."}
 // (or DINEPOS_HUB_URL and DINEPOS_HUB_ADMIN_KEY): the same file fine-dine's `npm run release` uses. Never in the
-// repository: the admin key runs the whole cloud. ODS is signed with %USERPROFILE%\.retailpos\addon-signing\private.pem
+// repository: the admin key runs the whole cloud. ODS is signed with %USERPROFILE%\.posinextpharmacy\addon-signing\private.pem
 // (or POS_ADDON_SIGNING_KEY); without the key it is skipped. Each file is sent with its SHA-256; the cloud keeps it only
 // if the bytes match. Building never installs anything on this PC.
 import { execFileSync } from 'node:child_process';
@@ -30,15 +30,15 @@ const POS_BUILD = [
   { cwd: 'desktop', cmd: 'node', args: ['scripts/build.mjs'] },
   { cwd: 'desktop', cmd: 'npx', args: ['electron-builder', '--win', '--config', 'electron-builder.config.cjs', '--publish', 'never'], env: { CSC_IDENTITY_AUTO_DISCOVERY: 'false' } },
 ];
-// The ODS installer uses the icon and NSIS that a Retail POS build leaves behind (addons/ods/scripts/installer.mjs)
+// The ODS installer uses the icon and NSIS that a PosiNext Pharmacy build leaves behind (addons/ods/scripts/installer.mjs)
 const POS_ICON = path.join(repo, 'desktop', 'release', '.icon-ico', 'icon.ico');
 const ITEMS = [
-  { id: 'retail', name: 'Retail POS', dir: path.join(repo, 'desktop', 'release'), file: /^RetailPOS-Setup-(.+)\.exe$/, build: POS_BUILD },
+  { id: 'pharmacy', name: 'PosiNext Pharmacy', dir: path.join(repo, 'desktop', 'release'), file: /^PosiNextPharmacy-Setup-(.+)\.exe$/, build: POS_BUILD },
   {
-    id: 'retail-ods', name: 'ODS', dir: path.join(repo, 'addons', 'dist', 'installers'), file: /^RetailPOS-ODS-Setup-(.+)\.exe$/,
+    id: 'retail-ods', name: 'ODS', dir: path.join(repo, 'addons', 'dist', 'installers'), file: /^PosiNextPharmacy-ODS-Setup-(.+)\.exe$/,
     build: [{ cwd: 'addons/ods', cmd: 'npm', args: ['run', 'installer'] }],
-    before: () => (existsSync(POS_ICON) ? [] : (console.warn('(Retail POS is built first: the ODS installer needs its icon and NSIS)'), POS_BUILD)),
-    needs: () => process.env.POS_ADDON_SIGNING_KEY ?? path.join(homedir(), '.retailpos', 'addon-signing', 'private.pem'),
+    before: () => (existsSync(POS_ICON) ? [] : (console.warn('(PosiNext Pharmacy is built first: the ODS installer needs its icon and NSIS)'), POS_BUILD)),
+    needs: () => process.env.POS_ADDON_SIGNING_KEY ?? path.join(homedir(), '.posinextpharmacy', 'addon-signing', 'private.pem'),
   },
 ].filter((i) => !only || i.id === only || i.id === `retail-${only}`);
 if (!ITEMS.length) fail('--only must be retail or ods');

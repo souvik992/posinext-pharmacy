@@ -1,4 +1,4 @@
-// A minimal zip writer (no dependencies) for .retailaddon files: the signed package files, flat, deflated.
+// A minimal zip writer (no dependencies) for .pharmacyaddon files: the signed package files, flat, deflated.
 // The Android app unpacks it (android/app/.../AddonInstaller.java); the POS then checks the signature as on Windows.
 import { crc32, deflateRawSync } from 'node:zlib';
 

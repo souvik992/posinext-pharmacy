@@ -1,4 +1,4 @@
-package com.retailpos.pos;
+package com.posinext.pharmacy;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
@@ -55,7 +55,7 @@ final class PrinterBridge {
     private static final Pattern USB = Pattern.compile("^usb:([0-9a-f]{4}):([0-9a-f]{4})(?::([A-Za-z0-9._-]{1,64}))?$");
     private static final Pattern BT = Pattern.compile("^bt:((?:[0-9A-F]{2}:){5}[0-9A-F]{2})$");
     private static final int MAX_JOB = 8 * 1024 * 1024;
-    private static final String USB_PERMISSION = "com.retailpos.pos.USB_PERMISSION";
+    private static final String USB_PERMISSION = "com.posinext.pharmacy.USB_PERMISSION";
 
     private final Context ctx;
     private final String token;
@@ -223,7 +223,7 @@ final class PrinterBridge {
         }
         JSONObject res = ok();
         res.put("printers", arr);
-        if (bt != null && !canUseBluetooth()) res.put("note", "Allow Nearby devices for Retail POS to see Bluetooth printers.");
+        if (bt != null && !canUseBluetooth()) res.put("note", "Allow Nearby devices for PosiNext Pharmacy to see Bluetooth printers.");
         return res;
     }
 
@@ -241,7 +241,7 @@ final class PrinterBridge {
     private JSONObject printBluetooth(String mac, byte[] data, boolean slow) throws Exception {
         BluetoothAdapter bt = adapter();
         if (bt == null) return fail("This device has no Bluetooth.");
-        if (!canUseBluetooth()) return fail("Allow Nearby devices for Retail POS (Android Settings, Apps, Retail POS, Permissions), then print again.");
+        if (!canUseBluetooth()) return fail("Allow Nearby devices for PosiNext Pharmacy (Android Settings, Apps, PosiNext Pharmacy, Permissions), then print again.");
         if (!bt.isEnabled()) return fail("Turn on Bluetooth, then print again.");
         BluetoothDevice dev = bt.getRemoteDevice(mac);
         BluetoothSocket sock = null;

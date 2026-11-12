@@ -1,9 +1,9 @@
 {
-  "name": "retail-pos-desktop",
+  "name": "posinext-pharmacy-desktop",
   "version": "0.1.0",
   "private": true,
   "description": "Windows desktop app for the offline-first POS: Electron host around the backend and the React UI.",
-  "author": "Retail POS",
+  "author": "PosiNext Pharmacy",
   "type": "module",
   "main": "dist/main.cjs",
   "scripts": {

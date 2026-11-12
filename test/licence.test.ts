@@ -1,4 +1,4 @@
-// P8-10 (fine-dine ADR-0007): Retail POS licensing. Keys from DinePOS Cloud (or the vendor's keygen), bound to this PC
+// P8-10 (fine-dine ADR-0007): PosiNext Pharmacy licensing. Keys from DinePOS Cloud (or the vendor's keygen), bound to this PC
 // and labelled retail. Without a usable licence only the licence routes answer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,7 +20,7 @@ const trusted: TrustedKey[] = [{ id: 'cloud', publicKey: publicKeyFromBase64(clo
 function key(env: Env, o: { days?: number; product?: string; hardwareId?: string; trial?: boolean; from?: number } = {}): string {
   const from = o.from ?? env.clock.now();
   return signKey({ kid: 'cloud', licensee: 'Chai Point', hardwareId: o.hardwareId ?? HW, issuedAt: new Date(from), expiresAt: new Date(from + (o.days ?? 30) * DAY),
-    seats: { terminals: 1, captains: 0, kds: 1 }, features: o.trial === false ? [] : ['trial'], ...(o.product === undefined ? { product: 'retail' } : o.product === '' ? {} : { product: o.product }) }, cloudKey);
+    seats: { terminals: 1, captains: 0, kds: 1 }, features: o.trial === false ? [] : ['trial'], ...(o.product === undefined ? { product: 'pharmacy' } : o.product === '' ? {} : { product: o.product }) }, cloudKey);
 }
 
 /** A stand-in DinePOS Cloud: /v1/activate and /v1/pos/licence. */
@@ -30,7 +30,7 @@ function fakeCloud(env: Env) {
     const u = String(url);
     st.calls.push({ url: u, body: init?.body ? JSON.parse(String(init.body)) : null, auth: new Headers(init?.headers).get('authorization') });
     if (u.endsWith('/v1/pos/licence')) return Response.json({ key: st.slot });
-    const a = st.answer ?? { status: 200, json: { kind: 'trial', product: 'retail', key: key(env), store: { slug: 'chai-point-1234', name: 'Chai Point' }, deviceKey: 'dk_test' } };
+    const a = st.answer ?? { status: 200, json: { kind: 'trial', product: 'pharmacy', key: key(env), store: { slug: 'chai-point-1234', name: 'Chai Point' }, deviceKey: 'dk_test' } };
     return Response.json(a.json, { status: a.status });
   }) as typeof fetch;
   return { st, f };
@@ -80,7 +80,7 @@ test('licence: a new install has no licence: everything but the licence routes i
     assert.deepEqual([act.json.usable, act.json.state, act.json.trial, act.json.linked], [true, 'ok', true, true]);
     const sent = cloud.st.calls[0]!;
     assert.equal(sent.url, 'https://cloud.test/v1/activate');
-    assert.deepEqual([sent.body.product, sent.body.hardwareId, sent.body.mode, sent.body.link, sent.body.outletName], ['retail', HW, 'trial', true, 'Demo Burger Hub']);
+    assert.deepEqual([sent.body.product, sent.body.hardwareId, sent.body.mode, sent.body.link, sent.body.outletName], ['pharmacy', HW, 'trial', true, 'Demo Burger Hub']);
     // the POS works now
     assert.equal((await api.login('Owner', '1234')).status, 200);
     // the password never reaches the audit log
@@ -161,9 +161,9 @@ test('licence: once it works, changing it needs an owner; the cloud\'s refusal i
   const cloud = fakeCloud(makeEnv());
   const api = await start({ cloud: cloud.f });
   try {
-    cloud.st.answer = { status: 409, json: { error: { code: 'TRIAL_USED', message: 'This PC has already had a free Retail POS trial.' } } };
+    cloud.st.answer = { status: 409, json: { error: { code: 'TRIAL_USED', message: 'This PC has already had a free PosiNext Pharmacy trial.' } } };
     const used = await api.call('POST', '/api/licence/activate', { body: { mode: 'trial', email: 'a@b.in', password: 'x' } });
-    assert.deepEqual([used.status, used.json.error.code, used.json.error.message], [400, 'TRIAL_USED', 'This PC has already had a free Retail POS trial.']);
+    assert.deepEqual([used.status, used.json.error.code, used.json.error.message], [400, 'TRIAL_USED', 'This PC has already had a free PosiNext Pharmacy trial.']);
     cloud.st.answer = null;
     await api.call('POST', '/api/licence/activate', { body: { mode: 'trial', email: 'a@b.in', password: 'x' } });
     // usable now: a cashier (or nobody) cannot change the licence; the owner can

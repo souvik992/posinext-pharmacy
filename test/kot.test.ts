@@ -169,14 +169,14 @@ test('KOT for online orders: the online design (channel, number, delivery); prin
 test('KOT designs: upload per slot (owner), preview without saving, used for printing, back to standard', () => {
   const env = makeEnv(); try {
     startShift(env);
-    const design = JSON.stringify({ format: 'retail-kot', version: 1, name: 'Big station', blocks: [{ type: 'text', text: '*** {{kot.station}} ***', align: 'center', size: 'big' }, { type: 'items', size: 'tall' }] });
-    const p = previewKotDesign(env.ctx, env.manager, 'station', { fileName: 'big.retailkot', content: design, widthMm: 58 });
+    const design = JSON.stringify({ format: 'pharmacy-kot', version: 1, name: 'Big station', blocks: [{ type: 'text', text: '*** {{kot.station}} ***', align: 'center', size: 'big' }, { type: 'items', size: 'tall' }] });
+    const p = previewKotDesign(env.ctx, env.manager, 'station', { fileName: 'big.pharmacykot', content: design, widthMm: 58 });
     assert.equal(p.name, 'Big station');
     assert.ok(p.lines.some((l) => l.includes('T A N D O O R')), 'the sample, double width');
     assert.ok(previewKotDesign(env.ctx, env.manager, 'customer', { widthMm: 80 }).lines.some((l) => l.includes('KITCHEN ORDER TICKET')), 'the design in use, without a file');
     assert.equal(code(() => previewKotDesign(env.ctx, env.manager, 'station', { fileName: 'big.txt', content: design, widthMm: 58 })), 'VALIDATION');
-    assert.equal(code(() => setKotDesignFile(env.ctx, env.manager, rid(), 'station', { fileName: 'big.retailkot', content: design })), 'FORBIDDEN');
-    setKotDesignFile(env.ctx, env.owner, rid(), 'station', { fileName: 'big.retailkot', content: design });
+    assert.equal(code(() => setKotDesignFile(env.ctx, env.manager, rid(), 'station', { fileName: 'big.pharmacykot', content: design })), 'FORBIDDEN');
+    setKotDesignFile(env.ctx, env.owner, rid(), 'station', { fileName: 'big.pharmacykot', content: design });
     assert.equal(getKotSettings(env.ctx, env.manager).slots.station.custom!.name, 'Big station');
     const mark = lastRow(env);
     pay(env, cartOf(env, [['Cheese Burger']]).order.id);

@@ -38,7 +38,7 @@ export function buildReceipt(d: ReceiptData, o: ReceiptOptions): Uint8Array {
   return renderTemplate(o.template ?? DEFAULT_TEMPLATE, d, o, { upiId: o.upiId });
 }
 
-/** The layout before bill designs (kept for reference; templates/receipt/standard.retailreceipt reproduces it). */
+/** The layout before bill designs (kept for reference; templates/receipt/standard.pharmacyreceipt reproduces it). */
 export function buildStandardReceipt(d: ReceiptData, o: ReceiptOptions): Uint8Array {
   const p = new EscPos(o.cols).init();
   const credit = d.invoice.docType === 'CREDIT_NOTE';

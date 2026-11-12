@@ -1,9 +1,9 @@
 {
-  "name": "retail-pos-addon-edc",
+  "name": "posinext-pharmacy-addon-edc",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Payment machines add-on for Retail POS: Paytm and Pine Labs card machines (EDC), wireless or wired.",
+  "description": "Payment machines add-on for PosiNext Pharmacy: Paytm and Pine Labs card machines (EDC), wireless or wired.",
   "scripts": {
     "test": "node --test --test-concurrency=1 \"test/*.test.ts\"",
     "typecheck": "tsc -p .",

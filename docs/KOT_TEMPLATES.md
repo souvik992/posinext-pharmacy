@@ -1,4 +1,4 @@
-# Kitchen ticket designs (.retailkot)
+# Kitchen ticket designs (.pharmacykot)
 
 Kitchen order tickets (KOT) print like bills do: from a design. The POS has three design slots, set in
 **Settings → Store settings → Kitchen tickets (KOT)**:
@@ -9,7 +9,7 @@ Kitchen order tickets (KOT) print like bills do: from a design. The POS has thre
 | **Prep station KOT** | Counter orders when tickets print **on prep station printers**. |
 | **Online order KOT** | Online orders (store app, website, Swiggy, Zomato), in either mode. |
 
-Each slot uses its **standard design** until the owner uploads a `.retailkot` file. The standard designs are the files in
+Each slot uses its **standard design** until the owner uploads a `.pharmacykot` file. The standard designs are the files in
 `templates/kot/` (`customer`, `station`, `online`). The customer KOT looks like the shop's sample: the shop name, KITCHEN
 ORDER TICKET, TOKEN, "113 | TANDOOR" in big letters, the order type, the bill number and time, the items with their
 notes (">> Less spicy"), Items and Qty, ** END **.
@@ -40,7 +40,7 @@ back to the standard design. Only the owner can change designs; the preview need
 ## File format (version 1)
 
 ```json
-{ "format": "retail-kot", "version": 1, "name": "Spice Route KOT", "description": "optional", "blocks": [ ... ] }
+{ "format": "pharmacy-kot", "version": 1, "name": "Spice Route KOT", "description": "optional", "blocks": [ ... ] }
 ```
 
 * At most 32 KB; 1 to 80 blocks; misspelt keys are refused.
@@ -79,7 +79,7 @@ The POS has no tables or waiters, so a "DINE-IN - T4" line cannot be printed (se
 ## For developers
 
 * Parser and renderer: `src/services/printing/kotTemplate.ts` (tests `test/kot_template.test.ts`); standard designs
-  `src/services/printing/defaultKotTemplates.ts` (must equal `templates/kot/*.retailkot`).
+  `src/services/printing/defaultKotTemplates.ts` (must equal `templates/kot/*.pharmacykot`).
 * Engine: `src/services/printing/kot.ts` (what was sent per order in `kot_line`, migration 14; tests `test/kot.test.ts`).
   Prep stations: `src/services/stations.ts`.
 * Endpoints: `GET /api/kot`, `PUT /api/kot/mode`, `POST /api/kot/designs/:slot/preview`, `PUT`/`DELETE /api/kot/designs/:slot`,

@@ -214,7 +214,7 @@ test('HTTP: kitchen tickets and prep stations over the API (cart KOT, reprint wi
     assert.equal((await call('PUT', '/api/kot/mode', { token: owner, body: { mode: 'with_bill' } })).json.mode, 'with_bill');
     const preview = (await call('POST', '/api/kot/designs/customer/preview', { token: owner, body: { widthMm: 58 }, key: null })).json;
     assert.ok(preview.lines.some((l: string) => l.includes('KITCHEN ORDER TICKET')));
-    assert.equal((await call('PUT', '/api/kot/designs/customer', { token: owner, body: { fileName: 'x.retailkot', content: '{}' } })).json.error.details.errors.length > 0, true);
+    assert.equal((await call('PUT', '/api/kot/designs/customer', { token: owner, body: { fileName: 'x.pharmacykot', content: '{}' } })).json.error.details.errors.length > 0, true);
     // a bill paid without printing (as the ODS can): the first print needs no approval, the next is a reprint
     const total = cart.totals.grandTotal;
     const bill = (await call('POST', `/api/orders/${order.id}/finalize`, { token: cashier, body: { payments: [{ mode: 'CASH', amount: total }] } })).json;

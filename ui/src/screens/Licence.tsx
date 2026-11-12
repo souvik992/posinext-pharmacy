@@ -1,4 +1,4 @@
-// P8-10: the licence. A lock screen when Retail POS has no usable licence (nothing else is reachable), a banner in its
+// P8-10: the licence. A lock screen when PosiNext Pharmacy has no usable licence (nothing else is reachable), a banner in its
 // last days, and Settings > Licence. Three ways in: sign in with the portal account (30-day trial, or the key the
 // account already has for this PC), Renew (the portal's plans page in the browser), or paste a licence key.
 import { useCallback, useEffect, useState } from 'react';
@@ -93,7 +93,7 @@ export function LicencePanel({ licence, onChanged }: { licence: LicenceInfo; onC
   );
 }
 
-/** Nothing else is on screen (or reachable) while Retail POS has no usable licence. */
+/** Nothing else is on screen (or reachable) while PosiNext Pharmacy has no usable licence. */
 export function LicenceLock({ licence, onChanged }: { licence: LicenceInfo; onChanged: (l: LicenceInfo) => void }) {
   return (
     <div className="flex min-h-screen justify-center overflow-y-auto bg-background px-4 py-10">
@@ -102,7 +102,7 @@ export function LicenceLock({ licence, onChanged }: { licence: LicenceInfo; onCh
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary font-display text-2xl text-primary-foreground">T</div>
           <div>
             <h1 className="flex items-center gap-2 font-display text-3xl"><ShieldAlert className="h-6 w-6 text-destructive" /> Licence needed</h1>
-            <p className="text-sm text-muted-foreground">Retail POS is locked until this PC has a licence. Your bills and data are safe.</p>
+            <p className="text-sm text-muted-foreground">PosiNext Pharmacy is locked until this PC has a licence. Your bills and data are safe.</p>
           </div>
         </div>
         <LicencePanel licence={licence} onChanged={onChanged} />

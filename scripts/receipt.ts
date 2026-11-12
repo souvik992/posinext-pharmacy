@@ -1,5 +1,5 @@
-// Checks a receipt design file (.retailreceipt) and shows the bill it prints, using a sample sale. No database needed.
-// Usage: npm run receipt -- <file.retailreceipt> [--width 58|80] [--credit] [--duplicate] [--upi shop@upi]
+// Checks a receipt design file (.pharmacyreceipt) and shows the bill it prints, using a sample sale. No database needed.
+// Usage: npm run receipt -- <file.pharmacyreceipt> [--width 58|80] [--credit] [--duplicate] [--upi shop@upi]
 // Exit code 0 when the file is valid, 1 when it is not (the reasons are listed).
 import { readFileSync } from 'node:fs';
 import { parseEscPos } from '../src/services/printing/virtual.ts';
@@ -9,7 +9,7 @@ import { parseTemplate } from '../src/services/printing/receiptTemplate.ts';
 const args = process.argv.slice(2);
 const file = args.find((a) => !a.startsWith('--') && !/^\d+$/.test(a) && !a.includes('@'));
 if (!file) {
-  console.error('Usage: npm run receipt -- <file.retailreceipt> [--width 58|80] [--credit] [--duplicate] [--upi shop@upi]');
+  console.error('Usage: npm run receipt -- <file.pharmacyreceipt> [--width 58|80] [--credit] [--duplicate] [--upi shop@upi]');
   process.exit(2);
 }
 const opt = (name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };

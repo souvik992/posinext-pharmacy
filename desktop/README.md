@@ -1,7 +1,7 @@
-# Retail POS for Windows (desktop app)
+# PosiNext Pharmacy for Windows (desktop app)
 
 An Electron app that wraps the POS: one window showing the billing UI, with the backend running inside it.
-No Node.js, browser or command line is needed on the shop PC: the shop runs the installer and opens **Retail POS** from the desktop.
+No Node.js, browser or command line is needed on the shop PC: the shop runs the installer and opens **PosiNext Pharmacy** from the desktop.
 
 ## Build
 
@@ -17,14 +17,14 @@ Then, in `desktop/`:
 | Command | What it does |
 |---|---|
 | `npm start` | builds, then opens the app (development; dev tools on Ctrl+Shift+I) |
-| `npm run dist` | builds the installer: `release/RetailPOS-Setup-<version>.exe` (about 130 MB; packed for fast installs on low-end PCs, see below) |
-| `npm run dist:dir` | builds the unpacked app only: `release/win-unpacked/RetailPOS.exe` (fast, for testing) |
+| `npm run dist` | builds the installer: `release/PosiNextPharmacy-Setup-<version>.exe` (about 130 MB; packed for fast installs on low-end PCs, see below) |
+| `npm run dist:dir` | builds the unpacked app only: `release/win-unpacked/PosiNextPharmacy.exe` (fast, for testing) |
 | `npm test` | unit tests (URL mapping, secret header, navigation rules) |
 | `npm run test:e2e` | builds, then drives the real app: sign-in, a bill with live print status, reports, lockdown, crash restart, single copy, clean close |
 | `npm run typecheck` | strict TypeScript |
 | `npm run icon` | redraws `build/icon.png` (the orange "T") |
 
-To test a packaged or installed build, set `POS_E2E_EXE` to its `RetailPOS.exe` and run `node --test test/app.e2e.test.ts`.
+To test a packaged or installed build, set `POS_E2E_EXE` to its `PosiNextPharmacy.exe` and run `node --test test/app.e2e.test.ts`.
 The test uses a temporary data folder (`POS_HOME`) with virtual printers only.
 
 To ship a new version, raise `version` in `desktop/package.json`, then run `npm run dist`.
@@ -32,7 +32,7 @@ To ship a new version, raise `version` in `desktop/package.json`, then run `npm 
 ## How it works
 
 ```
-RetailPOS.exe
+PosiNextPharmacy.exe
 ├─ main process (src/main.ts)       window, app://pos scheme, starts/stops/restarts the backend, logs, updates
 ├─ backend utility process          src/backend.ts → ../src/app.ts: the same backend as `npm start`
 │    on 127.0.0.1:<random port>, every request must carry a secret made at each launch
@@ -57,12 +57,12 @@ RetailPOS.exe
 
 | What | Where |
 |---|---|
-| App | `%LOCALAPPDATA%\Programs\RetailPOS` (per-user install, **no administrator needed**) |
-| Bills database, journal, backups, menu photos | `%LOCALAPPDATA%\RetailPOS\data` (local, not roaming: never synced by a domain profile) |
-| Log | `%LOCALAPPDATA%\RetailPOS\logs\pos.log` (rotates at 5 MB) |
-| Shortcuts | Desktop and Start menu: "Retail POS" |
+| App | `%LOCALAPPDATA%\Programs\PosiNextPharmacy` (per-user install, **no administrator needed**) |
+| Bills database, journal, backups, menu photos | `%LOCALAPPDATA%\PosiNextPharmacy\data` (local, not roaming: never synced by a domain profile) |
+| Log | `%LOCALAPPDATA%\PosiNextPharmacy\logs\pos.log` (rotates at 5 MB) |
+| Shortcuts | Desktop and Start menu: "PosiNext Pharmacy" |
 
-**Uninstalling never deletes the data folder.** To move a shop to a new PC, copy `%LOCALAPPDATA%\RetailPOS\data`.
+**Uninstalling never deletes the data folder.** To move a shop to a new PC, copy `%LOCALAPPDATA%\PosiNextPharmacy\data`.
 `POS_DATA_DIR` (data folder) and `POS_HOME` (data, logs and Electron profile) override these locations.
 
 ## Code signing (needed before giving it to shops)
@@ -76,7 +76,7 @@ The installer is **unsigned** today. Windows SmartScreen shows "Windows protecte
    $env:POS_PUBLISHER = "Your Company Pvt Ltd"   # the certificate's CN: updates signed by anyone else are refused
    npm run dist
    ```
-3. Check it: `Get-AuthenticodeSignature release\RetailPOS-Setup-<version>.exe` should print `Valid`.
+3. Check it: `Get-AuthenticodeSignature release\PosiNextPharmacy-Setup-<version>.exe` should print `Valid`.
 
 Never commit the certificate or its password.
 
@@ -87,7 +87,7 @@ Never commit the certificate or its password.
    ```powershell
    $env:POS_UPDATE_URL = "https://updates.example.in/pos/"; npm run dist
    ```
-3. Upload `release/latest.yml` and `RetailPOS-Setup-<version>.exe` (and its `.blockmap` if one was built) to that folder.
+3. Upload `release/latest.yml` and `PosiNextPharmacy-Setup-<version>.exe` (and its `.blockmap` if one was built) to that folder.
    Updates download the whole installer: it is packed as zip for installs about twice as fast on low-end PCs,
    which rules out downloading only the changed parts (docs/DECISIONS.md).
 
@@ -99,11 +99,11 @@ How shops receive it:
 
 A build without `POS_UPDATE_URL` never checks for updates.
 
-## Retail Data Manager (a separate app)
+## PosiNext Pharmacy Data Manager (a separate app)
 
 The owner's tool for the shop's data: a dashboard with charts, every table, changes to the menu, stock and staff, and
-backup and restore. It has its **own installer** (`release-manager/RetailDataManager-Setup-<version>.exe`), its own desktop
-shortcut ("Retail Data Manager", a brown "D") and its own folder, so it works on a computer where the POS was never
+backup and restore. It has its **own installer** (`release-manager/PosiNextPharmacyDataManager-Setup-<version>.exe`), its own desktop
+shortcut ("PosiNext Pharmacy Data Manager", a brown "D") and its own folder, so it works on a computer where the POS was never
 installed or was uninstalled: it reads the POS data folder, a copied data folder or a backup file.
 
 | Command (in `desktop/`) | What it does |
@@ -120,7 +120,7 @@ How it behaves:
   details, staff, coupons), so they are checked and logged exactly as at the POS. **Bills, payments, shifts and printing are
   never changed here**: bills are immutable (RULES.md 5); cancellations and refunds are done at the POS.
 * **View only** (a copy taken with SQLite's backup API, in this app's folder, removed on close) when:
-  * Retail POS is open on this computer (checked every 3 seconds; the app switches back when the POS closes);
+  * PosiNext Pharmacy is open on this computer (checked every 3 seconds; the app switches back when the POS closes);
   * the data comes from an older POS (the shop's database is never upgraded behind an older POS);
   * a backup file is open.
 * **All data:** every table as stored (amounts in paise), search, CSV download. PIN hashes, sign-in tokens, keys and
@@ -131,9 +131,9 @@ How it behaves:
 
 | What | Where |
 |---|---|
-| App | `%LOCALAPPDATA%\Programs\RetailDataManager` (per user, no administrator) |
-| Its own folder (window profile, log, temporary copies) | `%LOCALAPPDATA%\RetailDataManager` (`MANAGER_HOME` overrides) |
-| The POS data it opens first | `%LOCALAPPDATA%\RetailPOS\data` (`POS_DATA_DIR` or `POS_HOME` override) |
+| App | `%LOCALAPPDATA%\Programs\PosiNextPharmacyDataManager` (per user, no administrator) |
+| Its own folder (window profile, log, temporary copies) | `%LOCALAPPDATA%\PosiNextPharmacyDataManager` (`MANAGER_HOME` overrides) |
+| The POS data it opens first | `%LOCALAPPDATA%\PosiNextPharmacy\data` (`POS_DATA_DIR` or `POS_HOME` override) |
 
 ## Not done yet
 

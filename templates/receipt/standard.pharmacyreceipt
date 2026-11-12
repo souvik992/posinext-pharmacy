@@ -1,5 +1,5 @@
 {
-  "format": "retail-receipt",
+  "format": "pharmacy-receipt",
   "version": 1,
   "name": "Standard",
   "description": "The POS's built-in layout, as a design file. Start here when making a design for a shop.",

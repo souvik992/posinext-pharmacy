@@ -19,7 +19,7 @@ export interface BackendOptions {
   secret?: string;
   logger?: Logger;
   scheduleBackups?: boolean;
-  /** Folder with signed add-ons (one folder each). Desktop app: %LOCALAPPDATA%\RetailPOS\addons. */
+  /** Folder with signed add-ons (one folder each). Desktop app: %LOCALAPPDATA%\PosiNextPharmacy\addons. */
   addonsDir?: string | null;
   /** This POS version, for add-on compatibility. "-dev" versions accept any add-on version. */
   posVersion?: string;

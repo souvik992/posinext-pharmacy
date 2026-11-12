@@ -10,18 +10,18 @@ val desktopVersion: String = Regex("\"version\"\\s*:\\s*\"([0-9]+\\.[0-9]+\\.[0-
 val (vMajor, vMinor, vPatch) = desktopVersion.split(".").map { it.toInt() }
 
 // Release signing: environment variables (CI secrets), else the key in the user's profile
-// (%USERPROFILE%\.retailpos\android-signing, never in the repository). Without either, the release build is unsigned.
-val signingDir = File(System.getProperty("user.home"), ".retailpos/android-signing")
+// (%USERPROFILE%\.posinextpharmacy\android-signing, never in the repository). Without either, the release build is unsigned.
+val signingDir = File(System.getProperty("user.home"), ".posinextpharmacy/android-signing")
 val localSigning = Properties().apply { File(signingDir, "release.properties").takeIf { it.isFile }?.inputStream()?.use { load(it) } }
 val keystore: String? = System.getenv("POS_ANDROID_KEYSTORE") ?: File(signingDir, "release.jks").takeIf { it.isFile && !localSigning.isEmpty }?.path
 fun signing(env: String, prop: String): String? = System.getenv(env) ?: localSigning.getProperty(prop)
 
 android {
-    namespace = "com.retailpos.pos"
+    namespace = "com.posinext.pharmacy"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.retailpos.pos"
+        applicationId = "com.posinext.pharmacy"
         minSdk = 24
         targetSdk = 37
         versionCode = vMajor * 10000 + vMinor * 100 + vPatch
@@ -65,4 +65,4 @@ android {
     }
 }
 
-base.archivesName.set("RetailPOS-$desktopVersion")
+base.archivesName.set("PosiNextPharmacy-$desktopVersion")

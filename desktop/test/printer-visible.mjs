@@ -1,6 +1,6 @@
 // Manual check (not part of npm test): opens the desktop app on a temporary data folder and reads the
 // "USB printers plugged into this PC" list in Settings > Printer setup. Looks only: nothing is printed.
-// Usage: node test/printer-visible.mjs [path to RetailPOS.exe]
+// Usage: node test/printer-visible.mjs [path to PosiNextPharmacy.exe]
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';

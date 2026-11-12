@@ -57,7 +57,7 @@ export function Login() {
   const header = (text: string) => (
     <>
       <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary font-display text-2xl text-primary-foreground">T</div>
-      <h1 className="font-display text-3xl">Retail POS</h1>
+      <h1 className="font-display text-3xl">PosiNext Pharmacy</h1>
       <p className="mb-6 text-sm text-muted-foreground">{text}</p>
     </>
   );

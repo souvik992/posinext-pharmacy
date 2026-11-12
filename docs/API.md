@@ -73,7 +73,7 @@ Roles: **C**ashier, **M**anager, **O**wner (M includes C, O includes M). "approv
 | PUT `/api/store/logo` `{ width, height, bitsBase64 }`; DELETE `/api/store/logo` | O | bill logo: 1 bit per dot, 1 = black, rows of width/8 bytes, width 8..384 in steps of 8, height 8..240 |
 | GET `/api/store/logo.png` | none | the logo as it prints (black and white PNG), for previews |
 | GET `/api/receipt-design` | M | the bill design in use: `{ active: { name, description, fileName, uploadedAt, uploadedBy } | null, extension }` |
-| POST `/api/receipt-design/preview` `{ fileName, content, widthMm }` | O | checks a `.retailreceipt` file and returns the sample bill it prints (`lines`); nothing is saved. Invalid: 400 `VALIDATION` with `details.errors` (plain sentences) |
+| POST `/api/receipt-design/preview` `{ fileName, content, widthMm }` | O | checks a `.pharmacyreceipt` file and returns the sample bill it prints (`lines`); nothing is saved. Invalid: 400 `VALIDATION` with `details.errors` (plain sentences) |
 | PUT `/api/receipt-design` `{ fileName, content }`; DELETE `/api/receipt-design` | O | use the design for every new bill / back to the standard layout (audited). Format: docs/RECEIPT_TEMPLATES.md |
 | GET `/api/reports/catalog` | M | the store reports: key, title, group, description, usesDates |
 | GET `/api/reports/view/:key?from=YYYY-MM-DD&to=` | M | one report as a table: columns (with type), rows, totals, summary; money in paise; IST days; at most 3 years |
@@ -96,7 +96,7 @@ Roles: **C**ashier, **M**anager, **O**wner (M includes C, O includes M). "approv
 | POST `/api/users`, `/api/users/:id/pin`, `/deactivate` | O (own PIN: self) | |
 | POST `/api/backup` | O | returns `{file, bytes, verified, kind, images: {referenced, copied, missing}}`; photos go to `backups/images` |
 | GET `/api/backup/overview` | O | Settings > Backups: `{status, files: [{file, bytes, kind, at}], copy: {dir, lastAt, error, files}, cloud: {connected, on, url, store, everyHours, lastAt, lastFile, error, busy}, everyHoursChoices, lastRestore, canRestartItself}` |
-| PUT `/api/backup/copy` `{dir \| null}`; POST `/api/backup/copy/now`; GET `/api/backup/folder?path=` | O | offline copies: every backup is also copied (and checked) into `<dir>/RetailPOS-backups`; `folder` lists the backups in a folder (or its RetailPOS-backups) for restore |
+| PUT `/api/backup/copy` `{dir \| null}`; POST `/api/backup/copy/now`; GET `/api/backup/folder?path=` | O | offline copies: every backup is also copied (and checked) into `<dir>/PosiNextPharmacy-backups`; `folder` lists the backups in a folder (or its PosiNextPharmacy-backups) for restore |
 | POST `/api/backup/cloud/pair` `{url, code}`; PATCH `/api/backup/cloud` `{on?, everyHours?}`; DELETE `/api/backup/cloud`; POST `/api/backup/cloud/now`; GET `/api/backup/cloud/list` | O | online backups to the Retail backup server (the order hub). https only (http only for a server on this PC); the device key stays in the backend |
 | POST `/api/restore` `{source: device\|folder\|online, name, folder?, pin}`; POST `/api/restore/dismiss` | O + own PIN | checks and stages the backup, answers `{restarting}`, then the backend restarts itself on the same port and applies it (current data kept in `pre-restore-<time>/`, journal replayed). Sessions start fresh |
 | GET/PUT `/api/settings`; GET `/api/health[?deep=1]`; GET `/api/backups`; POST `/api/journal/repair`; GET `/api/audit`, `/api/audit/verify` | O | |

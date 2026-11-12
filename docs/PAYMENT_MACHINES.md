@@ -1,7 +1,7 @@
 # Payment machines (card machines / EDC)
 
-A separately installed add-on (`addons/edc`, id `edc`, needs POS 0.3.8): `RetailPOS-PaymentMachines-Setup-<version>.exe` on
-Windows, `RetailPOS-PaymentMachines-<version>.retailaddon` on Android. Without it the POS takes Card and UPI by hand,
+A separately installed add-on (`addons/edc`, id `edc`, needs POS 0.3.8): `PosiNextPharmacy-PaymentMachines-Setup-<version>.exe` on
+Windows, `PosiNextPharmacy-PaymentMachines-<version>.pharmacyaddon` on Android. Without it the POS takes Card and UPI by hand,
 as before. Build: `cd addons/edc && npm run build` (signed) and `npm run installer`.
 
 Settings > Payment machines (owner). At the counter, Card and UPI payments go to the machine; the bill is saved only

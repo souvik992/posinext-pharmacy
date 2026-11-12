@@ -1,9 +1,9 @@
-// The default bill design (used when the shop has not uploaded one). Same content as templates/receipt/classic.retailreceipt;
+// The default bill design (used when the shop has not uploaded one). Same content as templates/receipt/classic.pharmacyreceipt;
 // test/receipt_template.test.ts checks they match. Modelled on a classic Indian restaurant bill.
 import type { ReceiptTemplate } from './receiptTemplate.ts';
 
 export const DEFAULT_TEMPLATE: ReceiptTemplate = {
-  "format": "retail-receipt",
+  "format": "pharmacy-receipt",
   "version": 1,
   "name": "Classic",
   "description": "The POS's default bill: logo, store details, a Bill No / Cashier / Token / Date / Time row, Item / Price / Qty / Total columns, GST per rate and Net Amount.",

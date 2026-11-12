@@ -133,9 +133,9 @@ Earlier: packaged POS 0.2.0 loads the signed add-on and refuses an altered one; 
 | A day of billing: speed of adding items and paying (target: under 0.2 s per tap) | |
 | Power cut or app killed during a bill: the bill is either complete or not there, numbering has no gap | |
 | Sunmi built-in printer (Printer setup > Bluetooth > Built-in printer), a paired Bluetooth printer, a USB printer with an OTG cable (allow it once), a LAN printer on port 9100 | |
-| Settings > This device: choose a folder on a USB stick, Copy now, check RetailPOS-backups on a PC; restore one on Windows | |
+| Settings > This device: choose a folder on a USB stick, Copy now, check PosiNextPharmacy-backups on a PC; restore one on Windows | |
 | Reports: Download CSV (Download folder) and Print / PDF (Android print screen, Save as PDF) | |
-| Install the ODS add-on from a .retailaddon file (Settings > This device > Add-ons), turn on online orders, pair with the hub, receive an order with the app in the background | |
+| Install the ODS add-on from a .pharmacyaddon file (Settings > This device > Add-ons), turn on online orders, pair with the hub, receive an order with the app in the background | |
 | Leave the app in the background for an hour, come back: the POS still answers | |
 | Hindi and the rupee sign on the built-in or a Bluetooth printer (the app draws them, op "render" in PrinterBridge) | |
 
@@ -157,7 +157,7 @@ Done on the dev PC (2026-10-17): x86_64 emulator (Android 16 type, 16 KB pages).
 | Cart KOT button, then more items, then billing: the second ticket says ADD-ON KOT 2 and has only the new items | |
 | An item removed after sending, and a cleared cart after sending: CANCEL lines print | |
 | "With the bill" mode on the receipt printer: bill, then one ticket per station (customer KOT design) | |
-| An uploaded .retailkot design at 58 and 80 mm looks like its preview | |
+| An uploaded .pharmacykot design at 58 and 80 mm looks like its preview | |
 | Online order accepted with "print KOT only": no bill; ODS Bill button prints it once, the second time asks a manager | |
 
 ## Swiggy and Zomato (UrbanPiper test account)
@@ -179,7 +179,7 @@ Done on the dev PC (2026-10-17): x86_64 emulator (Android 16 type, 16 KB pages).
 GST rates and inclusive/exclusive treatment, odd-paisa rule, discount before tax, round-off, invoice numbering
 and 16-character limit, credit-note treatment, receipt mandatory fields (GSTIN, FSSAI, HSN thresholds), record retention. Bill designs: which parts a design must keep (today: title, number, date, GSTIN, items, GST, total). Reports: GST by rate and HSN summary match what the CA files in GSTR-1 for a real month. Swiggy/Zomato bills: GST on food paid by the platform (section 9(5)), packaging charges, store-funded platform discounts, payment mode OTHER until the platform pays out.
 
-## Retail Data Manager (separate app)
+## PosiNext Pharmacy Data Manager (separate app)
 | Check | Result |
 |---|---|
 | Dev build and packaged build (win-unpacked) over a temporary shop: owner-only sign-in, dashboard, all data, bills view only, backup now; view only while a "POS" program runs (automated e2e) | Passed 2026-10-27, Windows 11 dev PC |

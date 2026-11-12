@@ -63,7 +63,7 @@ export function postMove(ctx: Ctx, actor: Actor | null, m: MoveInput): { moved: 
 
 export interface StockLineInput { itemId: string; qtyMilli: number; unitCost?: number | null; batch?: BatchInput | null }
 
-/** Opening stock when the shop starts with Retail POS (or a newly added item): batches are created as given. */
+/** Opening stock when the shop starts with PosiNext Pharmacy (or a newly added item): batches are created as given. */
 export function addOpeningStock(ctx: Ctx, actor: Actor, requestId: string, lines: StockLineInput[]) {
   return retailCommand(ctx, requestId, 'stock.opening', actor, () => {
     assertPerm(actor, 'stock.write');

@@ -40,7 +40,7 @@ export async function saveFile(name: string, blob: Blob): Promise<string> {
 }
 
 /** Print / PDF of the page: Android's print screen (with Save as PDF) in the app, the browser's print elsewhere. */
-export function printPage(title = 'Retail POS'): void {
+export function printPage(title = 'PosiNext Pharmacy'): void {
   const a = androidApp();
   if (a) a.print(title); else window.print();
 }

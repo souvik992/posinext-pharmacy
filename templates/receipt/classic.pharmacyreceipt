@@ -1,5 +1,5 @@
 {
-  "format": "retail-receipt",
+  "format": "pharmacy-receipt",
   "version": 1,
   "name": "Classic",
   "description": "The POS's default bill: logo, store details, a Bill No / Cashier / Token / Date / Time row, Item / Price / Qty / Total columns, GST per rate and Net Amount.",

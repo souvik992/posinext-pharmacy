@@ -30,7 +30,7 @@ export function AndroidBackupCopies() {
         <h3 className="mb-2 flex items-center gap-2 font-semibold"><HardDriveDownload className="h-4 w-4 text-primary" />Backup copies on a USB stick or SD card</h3>
         {st?.folder ? (
           <>
-            <p className="text-sm">Folder: <b>{st.folder}</b> (in it: <b>RetailPOS-backups</b>)</p>
+            <p className="text-sm">Folder: <b>{st.folder}</b> (in it: <b>PosiNextPharmacy-backups</b>)</p>
             <p className="text-sm text-muted-foreground">{st.lastCopiedAt ? `Last copied ${when(st.lastCopiedAt)}. New backups are copied every 15 minutes while the app runs.` : 'Not copied yet.'}</p>
             {st.lastError && <p role="alert" className="mt-1 text-sm text-destructive">{st.lastError}</p>}
             <div className="mt-3 flex flex-wrap gap-2">
@@ -45,7 +45,7 @@ export function AndroidBackupCopies() {
             <button className="btn-primary mt-3" onClick={() => a.chooseBackupFolder()}><FolderOpen className="h-4 w-4" />Choose folder</button>
           </>
         )}
-        <p className="mt-3 text-xs text-muted-foreground">To restore on a PC, choose the RetailPOS-backups folder in Settings &gt; Backups &gt; Restore from a USB drive or folder.</p>
+        <p className="mt-3 text-xs text-muted-foreground">To restore on a PC, choose the PosiNextPharmacy-backups folder in Settings &gt; Backups &gt; Restore from a USB drive or folder.</p>
       </section>
   );
 }
@@ -63,7 +63,7 @@ export function DeviceSettings() {
       <h2 className="mb-4 font-display text-2xl">This device</h2>
       <section className="max-w-2xl rounded-2xl border border-border bg-card p-4" aria-label="Add-ons">
         <h3 className="mb-1 flex items-center gap-2 font-semibold"><PackagePlus className="h-4 w-4 text-primary" />Add-ons</h3>
-        <p className="mb-3 text-sm text-muted-foreground">Extra modules such as ODS (online orders and serviceability), installed from a <b>.retailaddon</b> file. The POS checks each add-on's signature before using it, as on Windows.</p>
+        <p className="mb-3 text-sm text-muted-foreground">Extra modules such as ODS (online orders and serviceability), installed from a <b>.pharmacyaddon</b> file. The POS checks each add-on's signature before using it, as on Windows.</p>
         {addons?.length === 0 && <p className="text-sm text-muted-foreground">No add-ons installed.</p>}
         <ul className="space-y-2">
           {addons?.map((x) => (

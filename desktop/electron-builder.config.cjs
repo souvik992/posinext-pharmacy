@@ -7,8 +7,8 @@ const updateUrl = process.env.POS_UPDATE_URL;
 
 /** @type {import('electron-builder').Configuration} */
 module.exports = {
-  appId: 'co.palletnow.retailpos',
-  productName: 'Retail POS',
+  appId: 'co.palletnow.posinextpharmacy',
+  productName: 'PosiNext Pharmacy',
   copyright: 'Copyright © 2026',
   directories: { output: 'release', buildResources: 'build' },
   files: ['dist/**/*', '!dist/**/*.map', 'package.json'],
@@ -21,7 +21,7 @@ module.exports = {
   win: {
     target: [{ target: 'nsis', arch: ['x64'] }],
     icon: 'build/icon.png',
-    executableName: 'RetailPOS',
+    executableName: 'PosiNextPharmacy',
     ...(process.env.POS_PUBLISHER ? { signtoolOptions: { publisherName: [process.env.POS_PUBLISHER] } } : {}),
   },
   nsis: {
@@ -31,10 +31,10 @@ module.exports = {
     allowToChangeInstallationDirectory: false,
     createDesktopShortcut: 'always',
     createStartMenuShortcut: true,
-    shortcutName: 'Retail POS',
+    shortcutName: 'PosiNext Pharmacy',
     runAfterFinish: true,
-    deleteAppDataOnUninstall: false, // bills and backups (in %LOCALAPPDATA%\RetailPOS) are never deleted by uninstalling
-    artifactName: 'RetailPOS-Setup-${version}.${ext}',
+    deleteAppDataOnUninstall: false, // bills and backups (in %LOCALAPPDATA%\PosiNextPharmacy) are never deleted by uninstalling
+    artifactName: 'PosiNextPharmacy-Setup-${version}.${ext}',
     // zip (deflate) instead of LZMA: about twice as fast to install on one CPU core (measured 21-26 s against 41-53 s),
     // for a ~131 MB instead of ~112 MB installer. zip needs differentialPackage off, so updates download the whole
     // installer rather than only the changed blocks. See docs/DECISIONS.md.

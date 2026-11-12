@@ -1,4 +1,4 @@
-package com.retailpos.pos;
+package com.posinext.pharmacy;
 
 import android.content.Context;
 import android.net.Uri;
@@ -19,7 +19,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /**
- * Installs an add-on file (.retailaddon: the signed package files, zipped) into files/pos-addons/<id>. This only
+ * Installs an add-on file (.pharmacyaddon: the signed package files, zipped) into files/pos-addons/<id>. This only
  * unpacks: the POS checks the signature, every file's fingerprint and the version when it starts, exactly as on Windows,
  * and switches the add-on off with a reason if anything is wrong.
  */
@@ -41,8 +41,8 @@ final class AddonInstaller {
             if (raw == null) throw new Exception("The file could not be opened.");
             for (ZipEntry e; (e = zin.getNextEntry()) != null; ) {
                 String name = e.getName();
-                if (e.isDirectory() || !NAME.matcher(name).matches() || name.contains("..")) throw new Exception("This is not a Retail POS add-on file.");
-                if (files.size() >= MAX_FILES) throw new Exception("This is not a Retail POS add-on file.");
+                if (e.isDirectory() || !NAME.matcher(name).matches() || name.contains("..")) throw new Exception("This is not a PosiNext Pharmacy add-on file.");
+                if (files.size() >= MAX_FILES) throw new Exception("This is not a PosiNext Pharmacy add-on file.");
                 ByteArrayOutputStream b = new ByteArrayOutputStream();
                 byte[] buf = new byte[64 * 1024];
                 for (int n; (n = zin.read(buf)) > 0; ) {
@@ -54,10 +54,10 @@ final class AddonInstaller {
             }
         }
         byte[] m = files.get("manifest.json");
-        if (m == null) throw new Exception("This is not a Retail POS add-on file (no manifest).");
+        if (m == null) throw new Exception("This is not a PosiNext Pharmacy add-on file (no manifest).");
         JSONObject manifest = new JSONObject(new String(m, StandardCharsets.UTF_8));
         String id = manifest.optString("id");
-        if (!ID.matcher(id).matches()) throw new Exception("This is not a Retail POS add-on file.");
+        if (!ID.matcher(id).matches()) throw new Exception("This is not a PosiNext Pharmacy add-on file.");
         File root = dir(ctx);
         if (!root.isDirectory() && !root.mkdirs()) throw new IOException("Cannot create the add-ons folder.");
         File tmp = new File(root, "." + id + ".new"), target = new File(root, id), old = new File(root, "." + id + ".old");

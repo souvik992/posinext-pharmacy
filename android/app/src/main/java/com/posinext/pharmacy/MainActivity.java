@@ -1,4 +1,4 @@
-package com.retailpos.pos;
+package com.posinext.pharmacy;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
@@ -120,7 +120,7 @@ public class MainActivity extends Activity {
     private void start() {
         retry.setVisibility(View.GONE);
         status.setVisibility(View.VISIBLE);
-        statusText.setText("Starting Retail POS…");
+        statusText.setText("Starting PosiNext Pharmacy…");
         PosBackend.start(this, new PosBackend.Listener() {
             @Override public void ready(int p, String token) {
                 runOnUiThread(() -> {
@@ -191,7 +191,7 @@ public class MainActivity extends Activity {
 
     /** Restarts the POS (after installing or removing an add-on): the window shows "Starting" and reloads. */
     private void restartPos() {
-        runOnUiThread(() -> { web.setVisibility(View.INVISIBLE); status.setVisibility(View.VISIBLE); statusText.setText("Restarting Retail POS…"); });
+        runOnUiThread(() -> { web.setVisibility(View.INVISIBLE); status.setVisibility(View.VISIBLE); statusText.setText("Restarting PosiNext Pharmacy…"); });
         PosBackend.stopAndWait();
         runOnUiThread(this::start);
     }
@@ -202,7 +202,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String saveFile(String name, String mime, String base64) {
             String safe = name.replaceAll("[^A-Za-z0-9._ -]", "_");
-            if (safe.isEmpty() || safe.length() > 120) safe = "retail-pos-file";
+            if (safe.isEmpty() || safe.length() > 120) safe = "posinext-pharmacy-file";
             byte[] bytes = Base64.decode(base64, Base64.DEFAULT);
             try {
                 if (Build.VERSION.SDK_INT >= 29) {
@@ -231,7 +231,7 @@ public class MainActivity extends Activity {
         public void print(String title) {
             runOnUiThread(() -> {
                 PrintManager pm = (PrintManager) getSystemService(PRINT_SERVICE);
-                String job = title == null || title.isEmpty() ? "Retail POS" : title;
+                String job = title == null || title.isEmpty() ? "PosiNext Pharmacy" : title;
                 pm.print(job, web.createPrintDocumentAdapter(job), new PrintAttributes.Builder().build());
             });
         }
@@ -253,7 +253,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void forgetBackupFolder() { backups.clearFolder(); }
 
-        /** Add-ons: choose a .retailaddon file (the POS checks its signature when it loads it). */
+        /** Add-ons: choose a .pharmacyaddon file (the POS checks its signature when it loads it). */
         @JavascriptInterface
         public void installAddon() {
             runOnUiThread(() -> {

@@ -16,7 +16,7 @@ interface T { m: Manager; dir: string; home: string; pos: { running: boolean }; 
 
 const SECRET = 'test-secret-123';
 
-/** A shop with bills, menu photos and a secret setting, then Retail Data Manager over its data folder. */
+/** A shop with bills, menu photos and a secret setting, then PosiNext Pharmacy Data Manager over its data folder. */
 async function shop(o: { dir?: string } = {}): Promise<T> {
   let dir = o.dir;
   if (!dir) {
@@ -167,7 +167,7 @@ test('Data Manager: backup (with a copy to a drive), open a backup file to look,
     const b = await t.call('POST', '/mgr/backup', { token, body: { copyTo: drive } });
     assert.equal(b.status, 200, b.text);
     assert.ok(existsSync(b.json.file) && existsSync(b.json.copy));
-    assert.ok(b.json.copy.startsWith(join(drive, 'RetailPOS-backups')));
+    assert.ok(b.json.copy.startsWith(join(drive, 'PosiNextPharmacy-backups')));
     assert.equal((await t.call('POST', '/mgr/backup', { token, body: { copyTo: join(drive, 'missing') } })).json.error.code, 'COPY_FOLDER_MISSING');
     const list = (await t.call('GET', '/mgr/backups', { token })).json;
     assert.equal(list.files.length, 1);

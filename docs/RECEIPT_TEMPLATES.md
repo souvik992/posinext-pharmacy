@@ -1,4 +1,4 @@
-# Receipt design files (.retailreceipt)
+# Receipt design files (.pharmacyreceipt)
 
 A design file makes a shop's bills print the way the shop wants, for example like the bills they used before.
 
@@ -6,21 +6,21 @@ A design file makes a shop's bills print the way the shop wants, for example lik
 
 1. **The shop sends you a sample.** This is a photo or PDF of the bill they want, plus their paper width (58 or 80 mm).
 2. **You write the design file.** Copy the closest example from `templates/receipt/` and edit it to match the photo:
-   * `classic.retailreceipt`: the default bill (logo, store details, a Bill No / Cashier / Token / Date / Time row, Item / Price / Qty / Total columns, Net Amount).
-   * `standard.retailreceipt`: the earlier built-in layout.
-   * `restaurant-gst-table.retailreceipt`: serial numbers and HSN on items, a GST table, a big token number and a UPI QR code.
-   * `compact-58mm.retailreceipt`: a short bill for narrow paper.
+   * `classic.pharmacyreceipt`: the default bill (logo, store details, a Bill No / Cashier / Token / Date / Time row, Item / Price / Qty / Total columns, Net Amount).
+   * `standard.pharmacyreceipt`: the earlier built-in layout.
+   * `restaurant-gst-table.pharmacyreceipt`: serial numbers and HSN on items, a GST table, a big token number and a UPI QR code.
+   * `compact-58mm.pharmacyreceipt`: a short bill for narrow paper.
 3. **You check it.** From the repo root:
    ```bash
-   npm run receipt -- path/to/shop.retailreceipt --width 80
-   npm run receipt -- path/to/shop.retailreceipt --width 58
-   npm run receipt -- path/to/shop.retailreceipt --credit        # how a refund (credit note) looks
-   npm run receipt -- path/to/shop.retailreceipt --duplicate     # a reprint
-   npm run receipt -- path/to/shop.retailreceipt --upi shop@okicici   # with the UPI QR code
+   npm run receipt -- path/to/shop.pharmacyreceipt --width 80
+   npm run receipt -- path/to/shop.pharmacyreceipt --width 58
+   npm run receipt -- path/to/shop.pharmacyreceipt --credit        # how a refund (credit note) looks
+   npm run receipt -- path/to/shop.pharmacyreceipt --duplicate     # a reprint
+   npm run receipt -- path/to/shop.pharmacyreceipt --upi shop@okicici   # with the UPI QR code
    ```
    * **Valid file:** it prints the bill as it will look on paper. Double-width text shows as `D o u b l e`, and a QR code shows as `[QR code]`.
    * **Invalid file:** it lists every problem and exits with code 1.
-4. **You send the file to the shop.** Keep the `.retailreceipt` ending; the POS only accepts that. The file is plain text, so it travels fine by WhatsApp or email.
+4. **You send the file to the shop.** Keep the `.pharmacyreceipt` ending; the POS only accepts that. The file is plain text, so it travels fine by WhatsApp or email.
 5. **The owner uploads it** in **Settings → Store settings → Bill design → Upload design file**.
    * The POS checks the file and shows a preview at 58 and 80 mm. The owner presses **Use this design**.
    * From then on, every new bill, reprint, on-screen receipt and sample uses it.
@@ -39,7 +39,7 @@ The design is stored in the shop's database, so it is included in backups and re
 * run code or calculate anything. Every amount is the backend's own figure, formatted for print.
 * remove the safety marks. `doc-title` always prints `TAX INVOICE` or `CREDIT NOTE`, `SAMPLE - NOT A BILL` on samples, and `*** CANCELLED ***` and `*** DUPLICATE ***` when they apply.
 * skip the paper feed, cut and cash-drawer kick; the POS adds those itself.
-* change the kitchen ticket (KOT). Kitchen tickets have their own designs (.retailkot): see docs/KOT_TEMPLATES.md.
+* change the kitchen ticket (KOT). Kitchen tickets have their own designs (.pharmacykot): see docs/KOT_TEMPLATES.md.
 
 **A design must include everything a GST bill needs, or the upload is refused:**
 * a `doc-title` block
@@ -56,7 +56,7 @@ Exactly what a bill must show (HSN for the shop's turnover, FSSAI, place of supp
 
 ```json
 {
-  "format": "retail-receipt",
+  "format": "pharmacy-receipt",
   "version": 1,
   "name": "Sharma Sweets",
   "description": "Optional, up to 300 characters",
@@ -67,7 +67,7 @@ Exactly what a bill must show (HSN for the shop's turnover, FSSAI, place of supp
 
 | Key | Required | Meaning |
 |---|---|---|
-| `format` | yes | Always `"retail-receipt"`. |
+| `format` | yes | Always `"pharmacy-receipt"`. |
 | `version` | yes | Always `1`. |
 | `name` | yes | 1 to 60 characters. The owner sees this name. |
 | `description` | no | Up to 300 characters. |

@@ -1,6 +1,6 @@
 ; Installer for the payment machines add-on (id edc). Built by scripts/installer.mjs (makensis from electron-builder's cache).
-; Installs for the current Windows user (no administrator), next to an installed Retail POS:
-;   %LOCALAPPDATA%\RetailPOS\addons\edc\  (signed package: the POS checks it before loading it)
+; Installs for the current Windows user (no administrator), next to an installed PosiNext Pharmacy:
+;   %LOCALAPPDATA%\PosiNextPharmacy\addons\edc\  (signed package: the POS checks it before loading it)
 ; Defines passed in: VERSION, SRC (built package folder), OUTFILE, ICON.
 Unicode true
 SetCompressor /SOLID lzma
@@ -9,20 +9,20 @@ RequestExecutionLevel user
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 
-!define NAME "Retail POS - Payment machines"
-!define REGKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\RetailPOS-PaymentMachines"
+!define NAME "PosiNext Pharmacy - Payment machines"
+!define REGKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\PosiNextPharmacy-PaymentMachines"
 
 Name "${NAME}"
 OutFile "${OUTFILE}"
-InstallDir "$LOCALAPPDATA\RetailPOS\addons\edc"
-BrandingText "Retail POS"
+InstallDir "$LOCALAPPDATA\PosiNextPharmacy\addons\edc"
+BrandingText "PosiNext Pharmacy"
 !define MUI_ICON "${ICON}"
 !define MUI_UNICON "${ICON}"
 !define MUI_ABORTWARNING
-!define MUI_WELCOMEPAGE_TITLE "Payment machines for Retail POS"
-!define MUI_WELCOMEPAGE_TEXT "This adds card machines (EDC) to Retail POS on this PC:$\r$\n$\r$\n- Settings > Payment machines: Paytm and Pine Labs, wireless (internet) or wired (USB or LAN cable)$\r$\n- At the counter: Card and UPI payments sent to the machine; the bill is saved when it approves$\r$\n- Orders: reverse a machine payment; a daily match of machine payments and bills$\r$\n$\r$\nRetail POS 0.3.8 or newer must already be installed. Your bills and data are not changed."
+!define MUI_WELCOMEPAGE_TITLE "Payment machines for PosiNext Pharmacy"
+!define MUI_WELCOMEPAGE_TEXT "This adds card machines (EDC) to PosiNext Pharmacy on this PC:$\r$\n$\r$\n- Settings > Payment machines: Paytm and Pine Labs, wireless (internet) or wired (USB or LAN cable)$\r$\n- At the counter: Card and UPI payments sent to the machine; the bill is saved when it approves$\r$\n- Orders: reverse a machine payment; a daily match of machine payments and bills$\r$\n$\r$\nPosiNext Pharmacy 0.3.8 or newer must already be installed. Your bills and data are not changed."
 !define MUI_FINISHPAGE_TITLE "Payment machines is installed"
-!define MUI_FINISHPAGE_TEXT "Restart Retail POS to use it. If the POS is open, it will ask you to restart."
+!define MUI_FINISHPAGE_TEXT "Restart PosiNext Pharmacy to use it. If the POS is open, it will ask you to restart."
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -38,9 +38,9 @@ VIAddVersionKey "FileDescription" "${NAME} installer"
 VIAddVersionKey "LegalCopyright" "Copyright (c) 2026"
 
 Function .onInit
-  ; the add-on needs an installed POS (per-user install from RetailPOS-Setup)
-  ${IfNot} ${FileExists} "$LOCALAPPDATA\Programs\RetailPOS\RetailPOS.exe"
-    MessageBox MB_ICONSTOP|MB_OK "Install Retail POS first (version 0.3.8 or newer), then run this installer again." /SD IDOK
+  ; the add-on needs an installed POS (per-user install from PosiNextPharmacy-Setup)
+  ${IfNot} ${FileExists} "$LOCALAPPDATA\Programs\PosiNextPharmacy\PosiNextPharmacy.exe"
+    MessageBox MB_ICONSTOP|MB_OK "Install PosiNext Pharmacy first (version 0.3.8 or newer), then run this installer again." /SD IDOK
     Abort
   ${EndIf}
 FunctionEnd
@@ -55,7 +55,7 @@ Section "Payment machines"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   WriteRegStr HKCU "${REGKEY}" "DisplayName" "${NAME}"
   WriteRegStr HKCU "${REGKEY}" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKCU "${REGKEY}" "Publisher" "Retail POS"
+  WriteRegStr HKCU "${REGKEY}" "Publisher" "PosiNext Pharmacy"
   WriteRegStr HKCU "${REGKEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${REGKEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr HKCU "${REGKEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'

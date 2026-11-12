@@ -255,23 +255,23 @@ test('reports: the client shows a report and downloads the same report as CSV; a
   } finally { await s.close(); }
 });
 
-test('receipt design: the owner previews and uploads a .retailreceipt file; a broken file comes back with reasons', async () => {
+test('receipt design: the owner previews and uploads a .pharmacyreceipt file; a broken file comes back with reasons', async () => {
   const s = await start(); try {
     const { readFileSync } = await import('node:fs');
-    const content = readFileSync(new URL('../../templates/receipt/restaurant-gst-table.retailreceipt', import.meta.url), 'utf8');
+    const content = readFileSync(new URL('../../templates/receipt/restaurant-gst-table.pharmacyreceipt', import.meta.url), 'utf8');
     await s.signIn('Owner', '1234');
     assert.equal((await s.api.receiptDesign()).active, null);
-    const p = await s.api.previewReceiptDesign('shop.retailreceipt', content, 58);
+    const p = await s.api.previewReceiptDesign('shop.pharmacyreceipt', content, 58);
     assert.ok(p.lines.some((l) => l.includes('NET PAYABLE')));
-    const err = await s.api.previewReceiptDesign('shop.retailreceipt', '{"format":"retail-receipt","version":1,"name":"x","blocks":[{"type":"doc-title"}]}', 80).catch((e: unknown) => e);
+    const err = await s.api.previewReceiptDesign('shop.pharmacyreceipt', '{"format":"pharmacy-receipt","version":1,"name":"x","blocks":[{"type":"doc-title"}]}', 80).catch((e: unknown) => e);
     assert.ok(err instanceof ApiError && err.code === 'VALIDATION');
     assert.match(((err as ApiError).details as { errors: string[] }).errors.join(' '), /A GST bill must show/);
-    assert.equal((await s.api.setReceiptDesign('shop.retailreceipt', content)).active.name, 'Restaurant with GST table');
+    assert.equal((await s.api.setReceiptDesign('shop.pharmacyreceipt', content)).active.name, 'Restaurant with GST table');
     assert.ok((await s.api.sampleReceipt(80)).lines.some((l) => l.includes('NET PAYABLE')));
     await s.api.clearReceiptDesign();
     assert.equal((await s.api.receiptDesign()).active, null);
     await s.signIn('Manager', '2345');
-    await assert.rejects(s.api.setReceiptDesign('shop.retailreceipt', content), is('FORBIDDEN'));
+    await assert.rejects(s.api.setReceiptDesign('shop.pharmacyreceipt', content), is('FORBIDDEN'));
   } finally { await s.close(); }
 });
 

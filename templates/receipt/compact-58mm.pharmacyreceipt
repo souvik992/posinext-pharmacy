@@ -1,5 +1,5 @@
 {
-  "format": "retail-receipt",
+  "format": "pharmacy-receipt",
   "version": 1,
   "name": "Compact (58 mm)",
   "description": "Short bill for narrow 58 mm paper: quantity and amount only, GST as one line per rate.",

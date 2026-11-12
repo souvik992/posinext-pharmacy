@@ -499,7 +499,7 @@ CREATE TABLE licence (
 );
 `;
 
-// V16 (Retail POS): retail items. MRP and the GST unit (UQC) on the item; brands; size/colour variants made from a
+// V16 (PosiNext Pharmacy): retail items. MRP and the GST unit (UQC) on the item; brands; size/colour variants made from a
 // template; several barcodes per item, each for a pack size (a case barcode adds 12); PLU for weighing-scale labels;
 // batches with expiry and their own MRP (the same item can be on the shelf at two MRPs); stock per item and batch with
 // an append-only ledger (the GST Rule 56 stock account); weighing-scale barcode layouts. reports/ has the research.
@@ -572,7 +572,7 @@ CREATE TABLE scale_profile (
 );
 `;
 
-// V17 (Retail POS): buying stock. Suppliers and what the shop owes them (an append-only ledger: bills add, payments and
+// V17 (PosiNext Pharmacy): buying stock. Suppliers and what the shop owes them (an append-only ledger: bills add, payments and
 // returns take away); goods receipts (GRN) against the supplier's bill, with free quantity, batches, MRP and new selling
 // prices; purchase returns (debit notes); and per-FY document counters for GRN and debit note numbers.
 const V17 = `
@@ -632,7 +632,7 @@ CREATE TRIGGER purchase_return_fixed BEFORE UPDATE ON purchase_return BEGIN SELE
 CREATE TRIGGER purchase_return_line_fixed BEFORE UPDATE ON purchase_return_line BEGIN SELECT RAISE(ABORT, 'debit notes are fixed'); END;
 `;
 
-// V18 (Retail POS): retail billing. Customers keyed by mobile, with GSTIN for B2B, a credit limit and days; khata
+// V18 (PosiNext Pharmacy): retail billing. Customers keyed by mobile, with GSTIN for B2B, a credit limit and days; khata
 // (customer ledger: sales on credit add, receipts and returns take away). Cart and bill lines carry the batch sold, its
 // MRP and the GST unit (UQC); a bill carries its customer and its GST scheme (a composition dealer issues a Bill of
 // Supply with no tax).
@@ -665,7 +665,7 @@ CREATE TRIGGER invoice_retail_fixed BEFORE UPDATE OF customer_id, gst_scheme ON 
   BEGIN SELECT RAISE(ABORT, 'a finalized invoice is immutable'); END;
 `;
 
-// V19 (Retail POS): cash counted note by note when a shift opens and closes; stock take (count shelves with the
+// V19 (PosiNext Pharmacy): cash counted note by note when a shift opens and closes; stock take (count shelves with the
 // scanner, then post the differences as COUNT stock moves).
 const V19 = `
 CREATE TABLE shift_cash_count (
@@ -684,7 +684,7 @@ CREATE TABLE stock_count_line (
 );
 `;
 
-// V20 (Retail POS): barcode / shelf label printers. A printer can be a label printer speaking TSPL (TSC, TVS and most
+// V20 (PosiNext Pharmacy): barcode / shelf label printers. A printer can be a label printer speaking TSPL (TSC, TVS and most
 // Indian and Chinese label printers) or ZPL (Zebra; Godex in emulation), with its label size and gap. Print jobs gain
 // the LABEL kind (print_job is rebuilt: SQLite cannot change a CHECK; it has no triggers or views, one index).
 const V20 = `

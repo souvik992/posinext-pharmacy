@@ -102,7 +102,7 @@ export async function runBackup(ctx: Ctx, kind: BackupKind = 'manual', destDir: 
 // ---------- offline copy: a USB drive, an external disk or any other folder ----------
 
 /** The folder the copies go into, inside the folder the owner chose. */
-export const COPY_FOLDER = 'RetailPOS-backups';
+export const COPY_FOLDER = 'PosiNextPharmacy-backups';
 export const copyDirOf = (chosen: string) => join(chosen, COPY_FOLDER);
 
 /**

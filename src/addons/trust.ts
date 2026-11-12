@@ -1,5 +1,5 @@
 // Public keys whose signed add-ons this POS will run. The matching private key is kept by the publisher OUTSIDE this
-// repository (default %USERPROFILE%\.retailpos\addon-signing\private.pem). Losing it means add-ons can no longer be updated
+// repository (default %USERPROFILE%\.posinextpharmacy\addon-signing\private.pem). Losing it means add-ons can no longer be updated
 // for existing installs; leaking it lets anyone ship add-ons this POS trusts. Back it up offline.
 export const TRUSTED_ADDON_KEYS: readonly string[] = [
   `-----BEGIN PUBLIC KEY-----

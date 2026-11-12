@@ -23,14 +23,14 @@ const render = (t: ReceiptTemplate, cols = 48, extra: Partial<Parameters<typeof 
 const code = (fn: () => unknown): string => { try { fn(); } catch (e) { if (e instanceof AppError) return e.code; throw e; } return 'NO_ERROR'; };
 
 /** The smallest design a GST bill allows. */
-const MINIMAL = { format: 'retail-receipt', version: 1, name: 'Minimal', blocks: [
+const MINIMAL = { format: 'pharmacy-receipt', version: 1, name: 'Minimal', blocks: [
   { type: 'text', text: '{{outlet.name}} GSTIN {{outlet.gstin}}' }, { type: 'doc-title' },
   { type: 'field', label: 'No', value: '{{invoice.no}}' }, { type: 'field', label: 'Date', value: '{{invoice.date}}' },
   { type: 'items', columns: [{ field: 'name', width: '*' }, { field: 'amount' }] }, { type: 'totals', rows: ['gst'] }, { type: 'grand-total' },
 ] };
 
 test('every example design in templates/receipt is valid and fits 58 and 80 mm paper', () => {
-  const names = readdirSync(DIR).filter((f) => f.endsWith('.retailreceipt'));
+  const names = readdirSync(DIR).filter((f) => f.endsWith('.pharmacyreceipt'));
   assert.ok(names.length >= 3);
   for (const n of names) {
     const t = ok(file(n));
@@ -44,7 +44,7 @@ test('every example design in templates/receipt is valid and fits 58 and 80 mm p
 });
 
 test('the standard design file prints the same information as the built-in layout', () => {
-  const t = ok(file('standard.retailreceipt'));
+  const t = ok(file('standard.pharmacyreceipt'));
   const data = sampleReceiptData(OUTLET, Date.parse('2026-10-15T14:13:00Z'));
   data.invoice.invoiceNo = 'A1/26-27/000007';
   const p = render(t, 48, { sample: false }, data);
@@ -78,7 +78,7 @@ test('a design file is checked: wrong files, typos, unknown placeholders and mis
 });
 
 test('safety marks are always printed by doc-title; refunds and cancelled bills never show a UPI payment code', () => {
-  const t = ok(file('restaurant-gst-table.retailreceipt'));
+  const t = ok(file('restaurant-gst-table.pharmacyreceipt'));
   const data = () => sampleReceiptData(OUTLET, Date.now());
   assert.match(render(t, 48, { copyNo: 2, sample: false }, data()).text, /DUPLICATE/);
   const cancelled = data(); cancelled.invoice.status = 'CANCELLED';
@@ -111,22 +111,22 @@ test('item tables always fit: the name wraps inside its column, and very narrow 
 
 test('shop design: owner uploads after a preview; bills, reprints, the screen receipt and the sample use it; back to standard', () => {
   const env = makeEnv(); try {
-    const design = file('restaurant-gst-table.retailreceipt');
+    const design = file('restaurant-gst-table.pharmacyreceipt');
     createPrinter(env.ctx, env.manager, rid(), { name: 'Counter', transport: 'memory', isReceipt: true });
 
     // preview checks the file and shows the sample, without saving
-    const pv = previewReceiptDesign(env.ctx, env.owner, { fileName: 'shop.retailreceipt', content: design, widthMm: 80 });
+    const pv = previewReceiptDesign(env.ctx, env.owner, { fileName: 'shop.pharmacyreceipt', content: design, widthMm: 80 });
     assert.equal(pv.name, 'Restaurant with GST table');
     assert.ok(pv.lines.some((l) => l.includes('NET PAYABLE')));
     assert.equal(getReceiptDesign(env.ctx, env.manager).active, null);
     // refused: wrong extension, broken file, not the owner
     assert.equal(code(() => previewReceiptDesign(env.ctx, env.owner, { fileName: 'shop.json', content: design, widthMm: 80 })), 'VALIDATION');
-    try { setReceiptDesign(env.ctx, env.owner, rid(), { fileName: 'bad.retailreceipt', content: '{"format":"retail-receipt","version":1,"name":"x","blocks":[{"type":"doc-title"}]}' }); assert.fail(); }
+    try { setReceiptDesign(env.ctx, env.owner, rid(), { fileName: 'bad.pharmacyreceipt', content: '{"format":"pharmacy-receipt","version":1,"name":"x","blocks":[{"type":"doc-title"}]}' }); assert.fail(); }
     catch (e) { assert.ok(e instanceof AppError && e.code === 'VALIDATION'); assert.match((e.details as { errors: string[] }).errors.join(' '), /A GST bill must show/); }
-    assert.equal(code(() => setReceiptDesign(env.ctx, env.manager, rid(), { fileName: 'shop.retailreceipt', content: design })), 'FORBIDDEN');
+    assert.equal(code(() => setReceiptDesign(env.ctx, env.manager, rid(), { fileName: 'shop.pharmacyreceipt', content: design })), 'FORBIDDEN');
 
-    const saved = setReceiptDesign(env.ctx, env.owner, rid(), { fileName: 'C:\\Users\\shop\\Downloads\\shop.retailreceipt', content: design });
-    assert.deepEqual([saved.active.name, saved.active.fileName], ['Restaurant with GST table', 'shop.retailreceipt']);
+    const saved = setReceiptDesign(env.ctx, env.owner, rid(), { fileName: 'C:\\Users\\shop\\Downloads\\shop.pharmacyreceipt', content: design });
+    assert.deepEqual([saved.active.name, saved.active.fileName], ['Restaurant with GST table', 'shop.pharmacyreceipt']);
     assert.equal(getReceiptDesign(env.ctx, env.manager).active!.name, 'Restaurant with GST table');
     assert.ok(!Object.keys(allSettings(env.ctx)).some((k) => k.startsWith('receipt_template')), 'not mixed into the plain settings');
 
@@ -148,7 +148,7 @@ test('shop design: owner uploads after a preview; bills, reprints, the screen re
 
 test('npm run receipt: shows a design on sample paper, and lists the problems of a broken file', () => {
   const script = join(import.meta.dirname, '..', 'scripts', 'receipt.ts');
-  const out = execFileSync(process.execPath, [script, join(DIR, 'compact-58mm.retailreceipt'), '--width', '58'], { encoding: 'utf8' });
+  const out = execFileSync(process.execPath, [script, join(DIR, 'compact-58mm.pharmacyreceipt'), '--width', '58'], { encoding: 'utf8' });
   assert.match(out, /"Compact \(58 mm\)" is valid/);
   assert.match(out, /\|TOTAL\s+470\.00\|/);
   let failed = '';
@@ -158,7 +158,7 @@ test('npm run receipt: shows a design on sample paper, and lists the problems of
 
 test('the default bill design is the Classic file, and its header row falls back to label lines on 58 mm paper', async () => {
   const { DEFAULT_TEMPLATE } = await import('../src/services/printing/defaultTemplate.ts');
-  assert.deepEqual(ok(file('classic.retailreceipt')), DEFAULT_TEMPLATE);
+  assert.deepEqual(ok(file('classic.pharmacyreceipt')), DEFAULT_TEMPLATE);
   const data = sampleReceiptData(OUTLET, Date.parse('2026-10-15T14:13:00Z'));
   data.invoice.invoiceNo = 'A1/26-27/000123';
   const p80 = parseEscPos(buildReceipt(data, { cols: 48, copyNo: 1, footer: 'Get Back Joe Joe!', drawer: false }));

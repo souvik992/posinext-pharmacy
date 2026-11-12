@@ -463,7 +463,7 @@ function AndroidPicker({ kind, value, onPick }: { kind: 'usb' | 'bluetooth'; val
     <Picker title={kind === 'usb' ? 'USB printers on this device' : 'Built-in and Bluetooth printers'} loading={loading} onRefresh={load} refreshLabel="Refresh">
       <p className="mb-2 text-xs text-muted-foreground">{kind === 'usb'
         ? 'Plug the printer in with a USB (OTG) cable. The first print asks you to allow it: tap OK.'
-        : 'A POS machine with a printer shows "Built-in printer". For another printer, pair it first in Android Settings, Bluetooth (PIN often 0000 or 1234), and allow Nearby devices for Retail POS.'}</p>
+        : 'A POS machine with a printer shows "Built-in printer". For another printer, pair it first in Android Settings, Bluetooth (PIN often 0000 or 1234), and allow Nearby devices for PosiNext Pharmacy.'}</p>
       {err && <p className="text-sm text-destructive">{err}</p>}
       {list?.length === 0 && <p className="text-sm text-muted-foreground">{kind === 'usb' ? 'No USB printer is plugged in.' : 'No printer found. Pair it in Android Settings, then press Refresh.'}</p>}
       <ul className="max-h-48 space-y-1 overflow-y-auto">
@@ -598,7 +598,7 @@ function ReceiptSettings({ title = 'Invoice / KOT', before }: { title?: string; 
           <section className="rounded-2xl border border-border bg-card p-4" aria-label="Bill design">
             <h3 className="font-semibold">Bill design</h3>
             <p className="mb-3 text-xs text-muted-foreground">
-              Want bills to look like your old ones? Send a photo of your bill to your POS provider. They send back a design file ending in <b>.retailreceipt</b>; upload it here.
+              Want bills to look like your old ones? Send a photo of your bill to your POS provider. They send back a design file ending in <b>.pharmacyreceipt</b>; upload it here.
             </p>
             <div className="mb-3 flex items-start gap-3 rounded-xl border border-border bg-background p-3">
               <ReceiptText className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
@@ -614,7 +614,7 @@ function ReceiptSettings({ title = 'Invoice / KOT', before }: { title?: string; 
             </div>
             {!isOwner ? <p className="text-sm text-muted-foreground">Only the owner can change the bill design.</p> : (
               <>
-                <input ref={fileInput} type="file" accept=".retailreceipt" className="hidden" aria-label="Bill design file" onChange={(e) => void choose(e.target.files?.[0])} />
+                <input ref={fileInput} type="file" accept=".pharmacyreceipt" className="hidden" aria-label="Bill design file" onChange={(e) => void choose(e.target.files?.[0])} />
                 {pending ? (
                   <div className="space-y-3">
                     <p className="text-sm">Chosen file: <b>{pending.fileName}</b></p>

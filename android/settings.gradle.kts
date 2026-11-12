@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "RetailPOS"
+rootProject.name = "PosiNextPharmacy"
 include(":app")

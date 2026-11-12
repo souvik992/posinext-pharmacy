@@ -271,7 +271,7 @@ export function buildRoutes(opts: { queue?: PrintQueue | null; addons?: LoadedAd
     c.res.end(png);
     return Symbol.for('handled');
   });
-  // receipt design (.retailreceipt): see docs/RECEIPT_TEMPLATES.md
+  // receipt design (.pharmacyreceipt): see docs/RECEIPT_TEMPLATES.md
   const designFile = obj({ fileName: str({ min: 1, max: 200 }), content: str({ min: 1, max: 200_000 }) });
   add('GET', '/api/receipt-design', {}, (c) => getReceiptDesign(c.ctx, c.actor));
   add('POST', '/api/receipt-design/preview', { idem: false }, (c) => { const b = body(c, obj({ fileName: str({ min: 1, max: 200 }), content: str({ min: 1, max: 200_000 }), widthMm: int({ min: 58, max: 80 }) })); return previewReceiptDesign(c.ctx, c.actor, b); });
@@ -324,7 +324,7 @@ export function buildRoutes(opts: { queue?: PrintQueue | null; addons?: LoadedAd
   add('GET', '/api/backups', {}, (c) => { assertPerm(c.actor, 'backup.run'); return { status: backupStatus(c.ctx), files: listBackups(c.ctx.backupDir) }; });
   // ---- Settings > Backups (owner): this device, a copy folder (USB drive), the online backup server, restore ----
   const copyDir = (c: RC) => getSetting(c.ctx, 'backup_copy_dir') || null;
-  /** A folder with backups: the folder itself, or the RetailPOS-backups folder inside it. */
+  /** A folder with backups: the folder itself, or the PosiNextPharmacy-backups folder inside it. */
   const backupFolder = (raw: string) => {
     const p = raw.trim();
     if (!p || !existsSync(p) || !statSync(p).isDirectory()) throw new AppError('FOLDER_NOT_FOUND', 'That folder was not found. Is the USB drive plugged in?', 404);

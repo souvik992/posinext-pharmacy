@@ -16,7 +16,7 @@ npm install            # dev dependencies only (typecheck)
 npm run seed           # demo data: Owner 9000000001/1234, Manager 9000000002/2345, Cashier 9000000003/1111 (mobile/PIN)  (DEVELOPMENT ONLY)
 npm start              # http://127.0.0.1:4800   (POS_DATA_DIR, POS_PORT to override)
 npm test               # 228 tests (1 opt-in), about 60 seconds on Windows
-npm run receipt -- <file.retailreceipt> [--width 58]   # check a shop's bill design and show it on sample paper
+npm run receipt -- <file.pharmacyreceipt> [--width 58]   # check a shop's bill design and show it on sample paper
 npm run restore        # list backups; `npm run restore -- <file>` restores one (POS stopped)
 npm run typecheck      # strict TypeScript
 node scripts/bench.ts 100000   # performance measurements
@@ -24,9 +24,9 @@ node scripts/bench.ts 100000   # performance measurements
 
 The billing UI lives in `ui/`. Install it once with `cd ui && npm install`. Then `npm run dev` in the repo root (or `npm start` in `ui/`) starts the backend and the UI together; open http://127.0.0.1:5173 and press Ctrl+C to stop both.
 
-The Windows desktop app (installer, one window, no Node.js needed on the shop PC) lives in `desktop/`: see `desktop/README.md`. `npm run dist` there builds `RetailPOS-Setup-<version>.exe`.
+The Windows desktop app (installer, one window, no Node.js needed on the shop PC) lives in `desktop/`: see `desktop/README.md`. `npm run dist` there builds `PosiNextPharmacy-Setup-<version>.exe`.
 
-**Releasing to customers:** `npm run release` (repository root) builds the Retail POS and ODS installers on this PC and uploads them to DinePOS Cloud, which offers them in the customer portal (fine-dine roadmap P8-11; settings in `%USERPROFILE%\.dinepos\release.json`, see `scripts/release.mjs`). CI builds installers only as test artifacts.
+**Releasing to customers:** `npm run release` (repository root) builds the PosiNext Pharmacy and ODS installers on this PC and uploads them to DinePOS Cloud, which offers them in the customer portal (fine-dine roadmap P8-11; settings in `%USERPROFILE%\.dinepos\release.json`, see `scripts/release.mjs`). CI builds installers only as test artifacts.
 
 For a real shop, do not run the seed. `POST /api/setup` creates the outlet, counter and owner on first run.
 
@@ -47,7 +47,7 @@ hub/            the online order hub (hub/README.md)
 desktop/        Windows desktop app (Electron host, installer, auto-update): see desktop/README.md
 ui/             React billing UI (see ui/README.md): talks to the local API, never calculates money
 docs/           API.md, DECISIONS.md, HARDWARE_TEST_PLAN.md, RECEIPT_TEMPLATES.md (bill design files)
-templates/receipt/  example bill designs (.retailreceipt)
+templates/receipt/  example bill designs (.pharmacyreceipt)
 ```
 
 ## What is guaranteed, and how it is proven

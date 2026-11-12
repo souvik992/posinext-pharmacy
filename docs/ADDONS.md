@@ -5,8 +5,8 @@ The POS can load **signed add-ons**: modules that ship and install separately fr
 ## How it fits together
 
 ```
-RetailPOS-Setup-0.3.0.exe            -> %LOCALAPPDATA%\Programs\RetailPOS        (the POS)
-RetailPOS-ODS-Setup-1.0.1.exe -> %LOCALAPPDATA%\RetailPOS\addons\ods\
+PosiNextPharmacy-Setup-0.3.0.exe            -> %LOCALAPPDATA%\Programs\PosiNextPharmacy        (the POS)
+PosiNextPharmacy-ODS-Setup-1.0.1.exe -> %LOCALAPPDATA%\PosiNextPharmacy\addons\ods\
                                           manifest.json  backend.cjs  ui.js  uninstall.exe
 ```
 
@@ -47,7 +47,7 @@ The steps, in order:
 
 ## Signing
 
-* **Private key:** `%USERPROFILE%\.retailpos\addon-signing\private.pem`, created on 2026-10-16. It is **not** in the repository. Back it up offline.
+* **Private key:** `%USERPROFILE%\.posinextpharmacy\addon-signing\private.pem`, created on 2026-10-16. It is **not** in the repository. Back it up offline.
   * If it is **lost**, you cannot ship updates that installed POS copies accept until you release a POS with a new key.
   * If it **leaks**, anyone can make add-ons every POS trusts. Remove the leaked key from `trust.ts` and release a POS update.
 * **Public key:** in `src/addons/trust.ts`. Several keys may be listed, which allows a key change.
@@ -70,11 +70,11 @@ npm install          # once
 npm test             # backend logic on a real POS database + the signed package loaded in a real POS
 npm run typecheck
 npm run build        # -> addons/dist/packages/ods (signed)
-npm run installer    # -> addons/dist/installers/RetailPOS-ODS-Setup-<version>.exe
+npm run installer    # -> addons/dist/installers/PosiNextPharmacy-ODS-Setup-<version>.exe
 ```
 
 * The add-on installer needs the POS installer to have been built once in `desktop/`, for the icon and the NSIS tool.
-* **Android:** `npm run build` also writes `addons/dist/installers/RetailPOS-ODS-<version>.retailaddon` (the three signed
+* **Android:** `npm run build` also writes `addons/dist/installers/PosiNextPharmacy-ODS-<version>.pharmacyaddon` (the three signed
   files, zipped). In the Android app: Settings > This device > Add-ons > Install from file (owner). The app only unpacks
   it into its `pos-addons` folder and restarts the POS; the loader checks signature, fingerprints and version as on Windows.
 * `npm run dev` in the repo root loads add-ons from `addons/dist/packages`.
@@ -100,7 +100,7 @@ protection. Whoever holds the signing key can ship code to every shop. What the 
 
 * `sqlProblem` reads the SQL text. It is a safety net against mistakes, not a sandbox. The backend code itself can still run any SQL through `host.db`.
 * There is no sandbox (no separate process or permissions per add-on). A signed add-on is fully trusted.
-* The signing key sits on the developer PC (`%USERPROFILE%.retailposaddon-signing`). A leak means a POS update with a new key. A hardware key or a separate signing PC would be safer.
+* The signing key sits on the developer PC (`%USERPROFILE%.posinextpharmacyaddon-signing`). A leak means a POS update with a new key. A hardware key or a separate signing PC would be safer.
 * Anti-rollback is kept in the POS database. Restoring an old backup also restores the old "highest version seen".
 
 **For the human reviewer:** `src/addons/host.ts` (`loadAddons`, `makeHost`, `applyAddonMigrations`, `sqlProblem`), `src/addons/manifest.ts`, `src/addons/trust.ts`, `desktop/src/main.ts` (folder watch, `/api` forwarding) and `src/services/onlineBilling.ts` (bills made for add-ons).
