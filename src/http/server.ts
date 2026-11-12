@@ -45,13 +45,14 @@ import { createCoupon, listCoupons, updateCoupon } from '../services/coupons.ts'
 import type { V } from './validate.ts';
 import { activate, installKey, licenceInfo, DEFAULT_CLOUD_URL, TRUSTED_KEYS, type LicenceConfig, type LicenceInfo } from '../licence/service.ts';
 import { hardwareId } from '../licence/hardware.ts';
+import { addRetailRoutes } from './retailRoutes.ts';
 
-interface RC {
+export interface RC {
   ctx: Ctx; actor: Actor; params: Record<string, string>; query: URLSearchParams; body: unknown; requestId: string; token: string | undefined;
   req: IncomingMessage; res: ServerResponse;
 }
-type Handler = (c: RC) => unknown | Promise<unknown>;
-interface Route { method: string; re: RegExp; keys: string[]; auth: boolean; idem: boolean; handler: Handler; format?: 'json' | 'csv' | 'sse'; /** P8-10: answers while the POS is locked for its licence */ unlicensed?: boolean }
+export type Handler = (c: RC) => unknown | Promise<unknown>;
+export interface Route { method: string; re: RegExp; keys: string[]; auth: boolean; idem: boolean; handler: Handler; format?: 'json' | 'csv' | 'sse'; /** P8-10: answers while the POS is locked for its licence */ unlicensed?: boolean }
 
 const MAX_BODY = 2_000_000;
 
@@ -78,6 +79,13 @@ export function buildRoutes(opts: { queue?: PrintQueue | null; addons?: LoadedAd
   };
   const body = <T>(c: RC, v: V<T>): T => v(c.body, '');
   const rid = (c: RC) => c.requestId;
+  /** Cash counted note by note: { "50000": 4, ... } (checked against the notes in services/shifts.ts). */
+  const denoms: V<Record<string, number>> = (v, p) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new AppError('VALIDATION', `${p || 'denominations'} must be an object of note -> count.`);
+    const out: Record<string, number> = {};
+    for (const [k, n] of Object.entries(v as Record<string, unknown>)) out[k] = int({ min: 0, max: 100000 })(n, `${p}.${k}`);
+    return out;
+  };
   const num = (q: URLSearchParams, k: string): number | undefined => { const v = q.get(k); if (v === null || v === '') return undefined; const n = Number(v); if (!Number.isSafeInteger(n)) throw new AppError('VALIDATION', `${k} must be a whole number`); return n; };
   const dayBounds = (c: RC) => {
     const from = c.query.get('from'), to = c.query.get('to');
@@ -131,7 +139,10 @@ export function buildRoutes(opts: { queue?: PrintQueue | null; addons?: LoadedAd
   add('GET', '/api/catalog', {}, (c) => getCatalog(c.ctx));
   add('GET', '/api/items/search', {}, (c) => searchItems(c.ctx, c.query.get('q') ?? '', num(c.query, 'limit') ?? 30));
   add('GET', '/api/items/by-barcode/:code', {}, (c) => itemByBarcode(c.ctx, c.params.code!));
-  const itemShape = { name: str({ min: 1, max: 120 }), categoryId: opt(nullable(str({ max: 64 }))), shortName: opt(nullable(str({ max: 40 }))), sku: opt(nullable(str({ max: 40 }))), barcode: opt(nullable(str({ max: 40 }))), hsnCode: opt(nullable(str({ max: 8 }))), taxGroupId: str({ min: 1, max: 64 }), price: int({ min: 0 }), unit: opt(str({ max: 10 })), isVeg: opt(nullable(bool)), imageFile: opt(nullable(str({ max: 200 }))), description: opt(nullable(str({ max: 300 }))) };
+  const itemShape = { name: str({ min: 1, max: 120 }), categoryId: opt(nullable(str({ max: 64 }))), shortName: opt(nullable(str({ max: 40 }))), sku: opt(nullable(str({ max: 40 }))), barcode: opt(nullable(str({ max: 40 }))), hsnCode: opt(nullable(str({ max: 8 }))), taxGroupId: str({ min: 1, max: 64 }), price: int({ min: 0 }), unit: opt(str({ max: 10 })), isVeg: opt(nullable(bool)), imageFile: opt(nullable(str({ max: 200 }))), description: opt(nullable(str({ max: 300 }))),
+    // retail
+    mrp: opt(nullable(int({ min: 0 }))), brandId: opt(nullable(str({ max: 64 }))), uqc: opt(str({ max: 3 })), isWeighed: opt(bool), batchTracked: opt(bool), trackStock: opt(bool), plu: opt(nullable(str({ max: 8 }))),
+    purchasePrice: opt(nullable(int({ min: 0 }))), wholesalePrice: opt(nullable(int({ min: 0 }))), reorderLevelMilli: opt(int({ min: 0 })) };
   add('POST', '/api/items', {}, (c) => createItem(c.ctx, c.actor, rid(c), body(c, obj(itemShape))));
   add('PATCH', '/api/items/:id', {}, (c) => updateItem(c.ctx, c.actor, rid(c), c.params.id!, body(c, obj({ ...itemShape, name: opt(str({ min: 1, max: 120 })), taxGroupId: opt(str({ min: 1, max: 64 })), price: opt(int({ min: 0 })) }))));
   add('DELETE', '/api/items/:id', {}, (c) => deleteItem(c.ctx, c.actor, rid(c), c.params.id!));
@@ -164,7 +175,7 @@ export function buildRoutes(opts: { queue?: PrintQueue | null; addons?: LoadedAd
   add('GET', '/api/orders', {}, (c) => { const st = c.query.get('status'); if (st !== null && st !== 'DRAFT' && st !== 'HELD') throw new AppError('VALIDATION', 'status must be DRAFT or HELD'); return listOpenOrders(c.ctx, { status: st ?? undefined }); });
   add('GET', '/api/orders/:id', {}, (c) => getCart(c.ctx, c.params.id!));
   add('PATCH', '/api/orders/:id', {}, (c) => { const b = body(c, obj({ customerPhone: opt(nullable(str({ max: 10 }))), customerName: opt(nullable(str({ max: 80 }))), note: opt(nullable(str({ max: 200 }))), buyerGstin: opt(nullable(str({ max: 15 }))), placeOfSupply: opt(nullable(str({ max: 2 }))), override: opt(override) })); const { override: ov, ...rest } = b; return updateOrder(c.ctx, c.actor, rid(c), { orderId: c.params.id!, ...rest }, ov); });
-  add('POST', '/api/orders/:id/lines', {}, (c) => addLine(c.ctx, c.actor, rid(c), { orderId: c.params.id!, ...body(c, obj({ itemId: str({ min: 1, max: 64 }), qtyMilli: opt(int({ min: 1 })), modifierIds: opt(arr(str({ max: 64 }), { max: 30 })), note: opt(nullable(str({ max: 120 }))) })) }));
+  add('POST', '/api/orders/:id/lines', {}, (c) => addLine(c.ctx, c.actor, rid(c), { orderId: c.params.id!, ...body(c, obj({ itemId: str({ min: 1, max: 64 }), qtyMilli: opt(int({ min: 1 })), modifierIds: opt(arr(str({ max: 64 }), { max: 30 })), note: opt(nullable(str({ max: 120 }))), batchId: opt(nullable(str({ max: 64 }))) })) }));
   add('PATCH', '/api/lines/:lineId', {}, (c) => updateLine(c.ctx, c.actor, rid(c), { lineId: c.params.lineId!, ...body(c, obj({ qtyMilli: opt(int({ min: 1 })), discount: opt(nullable(discount)), note: opt(nullable(str({ max: 120 }))), override: opt(override) })) }));
   add('DELETE', '/api/lines/:lineId', {}, (c) => removeLine(c.ctx, c.actor, rid(c), c.params.lineId!, body(c, obj({ override: opt(override) })).override));
   add('POST', '/api/orders/:id/coupon', {}, (c) => applyCoupon(c.ctx, c.actor, rid(c), { orderId: c.params.id!, ...body(c, obj({ code: str({ min: 1, max: 20 }) })) }));
@@ -212,8 +223,8 @@ export function buildRoutes(opts: { queue?: PrintQueue | null; addons?: LoadedAd
 
   // ---- shifts ----
   add('GET', '/api/shifts/current', {}, (c) => currentShift(c.ctx));
-  add('POST', '/api/shifts/open', {}, (c) => openShift(c.ctx, c.actor, rid(c), body(c, obj({ openingCash: int({ min: 0 }) }))));
-  add('POST', '/api/shifts/close', {}, (c) => closeShift(c.ctx, c.actor, rid(c), body(c, obj({ countedCash: int({ min: 0 }), discardOpenOrders: opt(bool) }))));
+  add('POST', '/api/shifts/open', {}, (c) => openShift(c.ctx, c.actor, rid(c), body(c, obj({ openingCash: int({ min: 0 }), denominations: opt(denoms) }))));
+  add('POST', '/api/shifts/close', {}, (c) => closeShift(c.ctx, c.actor, rid(c), body(c, obj({ countedCash: int({ min: 0 }), denominations: opt(denoms), discardOpenOrders: opt(bool) }))));
   add('GET', '/api/shifts/current/x-report', {}, (c) => xReport(c.ctx, c.actor));
   add('POST', '/api/shifts/current/x-report/print', {}, (c) => printXReport(c.ctx, c.actor, rid(c)));
   add('POST', '/api/drawer/open', {}, (c) => openDrawer(c.ctx, c.actor, rid(c), body(c, obj({ reason: str({ min: 1, max: 120 }), override: opt(override) }))));
@@ -407,6 +418,7 @@ export function buildRoutes(opts: { queue?: PrintQueue | null; addons?: LoadedAd
     return Symbol.for('handled');
   });
   for (const r of addons.routes) add(r.method, r.path, { auth: r.opts.auth, idem: r.opts.idem, format: r.opts.format === 'sse' ? 'sse' : undefined }, (c) => r.handler(c));
+  addRetailRoutes(add, body, rid);
   return routes;
 }
 
